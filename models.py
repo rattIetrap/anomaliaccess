@@ -137,7 +137,7 @@ def preprocess_data(df, scaler=None, label_encoders=None, is_training=True):
             df_processed['srccountry_enc'] = 0 
 
 
-    action_mapping = {'accept': 0, 'deny': 1, 'close': 2, 'timeout': 3} # Sesuai skripsi
+    action_mapping = {'accept': 0, 'deny': 1, 'close': 2, 'timeout': 3} # Sesuai skripsi [cite: 7377]
     # Pastikan kolom 'action' ada dan merupakan string sebelum mapping
     if 'action' in df_processed.columns:
         df_processed['action_enc'] = df_processed['action'].astype(str).map(action_mapping).fillna(max(action_mapping.values()) + 1) # Isi NaN dengan nilai baru
@@ -191,7 +191,7 @@ def preprocess_data(df, scaler=None, label_encoders=None, is_training=True):
 
 
 # --- Model Autoencoder ---
-def create_autoencoder(input_dim, encoding_dim=32, dropout_rate=0.2):
+def create_autoencoder(input_dim, encoding_dim=32, dropout_rate=0.2): # Arsitektur bisa disesuaikan [cite: 7574, 7576, 7577, 7580]
     """Membuat model Autoencoder."""
     input_layer = Input(shape=(input_dim,))
     
@@ -207,10 +207,10 @@ def create_autoencoder(input_dim, encoding_dim=32, dropout_rate=0.2):
     decoder = Dropout(dropout_rate)(decoder)
     decoder = Dense(128, activation="relu")(decoder)
     decoder = Dropout(dropout_rate)(decoder)
-    decoder_output = Dense(input_dim, activation="sigmoid")(decoder) # Sigmoid karena data dinormalisasi [0,1]
+    decoder_output = Dense(input_dim, activation="sigmoid")(decoder) # Sigmoid karena data dinormalisasi [0,1] [cite: 7577]
     
     autoencoder = Model(inputs=input_layer, outputs=decoder_output)
-    autoencoder.compile(optimizer='adam', loss='mse') # Mean Squared Error untuk reconstruction loss
+    autoencoder.compile(optimizer='adam', loss='mse') # Mean Squared Error untuk reconstruction loss [cite: 7578]
     return autoencoder
 
 def train_autoencoder(X_train, input_dim, model_save_path="autoencoder_model.h5", epochs=50, batch_size=32):
@@ -237,8 +237,8 @@ def train_autoencoder(X_train, input_dim, model_save_path="autoencoder_model.h5"
             X_val_data_fit = X_val_split
 
 
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-    model_checkpoint = ModelCheckpoint(model_save_path, save_best_only=True, monitor='val_loss', verbose=0) # verbose=0 untuk mengurangi output
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True) # [cite: 6823]
+    model_checkpoint = ModelCheckpoint(model_save_path, save_best_only=True, monitor='val_loss', verbose=0) 
     
     print(f"Melatih Autoencoder dengan {epochs} epochs...")
     history = autoencoder.fit(X_train_data_fit, X_train_data_fit,
@@ -247,7 +247,7 @@ def train_autoencoder(X_train, input_dim, model_save_path="autoencoder_model.h5"
                               shuffle=True,
                               validation_data=(X_val_data_fit, X_val_data_fit),
                               callbacks=[early_stopping, model_checkpoint],
-                              verbose=1) # verbose=1 untuk melihat progress per epoch
+                              verbose=1) 
     
     print(f"Autoencoder dilatih dan model terbaik disimpan di {model_save_path}")
     # Muat model terbaik yang disimpan oleh ModelCheckpoint
@@ -255,10 +255,10 @@ def train_autoencoder(X_train, input_dim, model_save_path="autoencoder_model.h5"
         best_model = load_model(model_save_path)
     except Exception as e:
         print(f"Gagal memuat model terbaik dari {model_save_path}: {e}. Mengembalikan model terakhir.")
-        best_model = autoencoder # Kembalikan model terakhir jika gagal load
+        best_model = autoencoder 
     return best_model, history
 
-def get_autoencoder_anomalies(autoencoder_model, data_scaled, threshold_percentile=95, training_mse=None):
+def get_autoencoder_anomalies(autoencoder_model, data_scaled, threshold_percentile=95, training_mse=None): # Threshold dari persentil [cite: 6744, 6962]
     """
     Mendeteksi anomali menggunakan Autoencoder.
     Jika training_mse disediakan, threshold dihitung dari situ. Jika tidak, dari data_scaled.
@@ -267,29 +267,25 @@ def get_autoencoder_anomalies(autoencoder_model, data_scaled, threshold_percenti
         return pd.Series(dtype='bool'), pd.Series(dtype='float')
 
     predictions = autoencoder_model.predict(data_scaled)
-    # Pastikan data_scaled adalah numpy array untuk operasi pengurangan
     data_scaled_np = data_scaled.to_numpy() if isinstance(data_scaled, pd.DataFrame) else data_scaled
     
-    mse = np.mean(np.power(data_scaled_np - predictions, 2), axis=1)
+    mse = np.mean(np.power(data_scaled_np - predictions, 2), axis=1) # MSE Reconstruction Error [cite: 6959]
     
     if training_mse is not None and len(training_mse) > 0:
-        threshold = np.percentile(training_mse, threshold_percentile)
-        # print(f"Threshold Autoencoder dari training_mse: {threshold:.6f}") # Bisa di-uncomment untuk debugging
+        threshold = np.percentile(training_mse, threshold_percentile) # [cite: 6744]
     else:
-        if len(mse) == 0: # Jika mse kosong (misal data_scaled kosong setelah prediksi)
+        if len(mse) == 0: 
             print("Peringatan: MSE kosong, tidak bisa menghitung threshold.")
             return pd.Series(dtype='bool', index=data_scaled.index), pd.Series(dtype='float', index=data_scaled.index)
         threshold = np.percentile(mse, threshold_percentile) 
         print(f"Peringatan: Threshold Autoencoder dihitung dari data saat ini (data_scaled): {threshold:.6f}. Idealnya dari training_mse.")
     
-    anomalies = mse > threshold
+    anomalies = mse > threshold # Data di atas threshold adalah anomali [cite: 6952]
     return pd.Series(anomalies, index=data_scaled.index), pd.Series(mse, index=data_scaled.index)
 
 # --- Model One-Class SVM ---
-def create_ocsvm(kernel='rbf', nu=0.05, gamma='scale'):
+def create_ocsvm(kernel='rbf', nu=0.05, gamma='scale'): # Parameter OC-SVM [cite: 6737, 6983, 6984]
     """Membuat model One-Class SVM."""
-    # nu: perkiraan proporsi outlier dalam data training
-    # gamma: koefisien kernel
     ocsvm = OneClassSVM(kernel=kernel, nu=nu, gamma=gamma)
     return ocsvm
 
@@ -301,7 +297,7 @@ def train_ocsvm(X_train, model_save_path="ocsvm_model.joblib"):
         
     ocsvm = create_ocsvm()
     print("Melatih OC-SVM...")
-    ocsvm.fit(X_train)
+    ocsvm.fit(X_train) # OC-SVM dilatih hanya dengan data normal [cite: 6978]
     
     joblib.dump(ocsvm, model_save_path)
     print(f"OC-SVM dilatih dan disimpan di {model_save_path}")
@@ -311,7 +307,8 @@ def get_ocsvm_anomalies(ocsvm_model, data_scaled):
     """Mendeteksi anomali menggunakan One-Class SVM."""
     if data_scaled.empty:
          return pd.Series(dtype='bool'), pd.Series(dtype='float')
-    predictions = ocsvm_model.predict(data_scaled) # Hasilnya: 1 untuk inlier (normal), -1 untuk outlier (anomali)
-    decision_scores = ocsvm_model.decision_function(data_scaled)
-    anomalies = predictions == -1
+    predictions = ocsvm_model.predict(data_scaled) 
+    decision_scores = ocsvm_model.decision_function(data_scaled) # Skor keputusan [cite: 6986]
+    anomalies = predictions == -1 # Skor negatif (atau -1) adalah anomali [cite: 6987, 7002]
     return pd.Series(anomalies, index=data_scaled.index), pd.Series(decision_scores, index=data_scaled.index)
+
