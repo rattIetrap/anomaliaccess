@@ -130,15 +130,15 @@ def run_dashboard_page():
 
     st.markdown("---")
     st.header("1. Unggah File Log Fortigate")
-uploaded_file = st.file_uploader(
-    "Pilih file log (.txt atau .log)", 
-    type=["txt", "log"], 
-    key="file_uploader_dashboard_main_unique_key_debug", # Key berbeda untuk tes
-    help="Unggah file log Anda dalam format .txt atau .log untuk dianalisis."
-)
+    uploaded_file = st.file_uploader(
+        "Pilih file log (.txt atau .log)", 
+        type=["txt", "log"], 
+        key="file_uploader_dashboard_main_unique_key", 
+        help="Unggah file log Fortigate Anda dalam format .txt atau .log untuk dianalisis."
+    )
 
     if uploaded_file is not None:
-    st.success(f"DEBUG: File '{uploaded_file.name}' diterima oleh Streamlit. Ukuran: {uploaded_file.size} bytes.")
+        st.markdown(f"File yang diunggah: `{uploaded_file.name}` (`{uploaded_file.size / 1024:.2f} KB`)")
         
         unique_id = str(uuid.uuid4().hex[:8])
         # Gunakan nama file asli untuk file temporer agar lebih mudah dikenali (meskipun ada ID unik)
