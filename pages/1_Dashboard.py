@@ -4,12 +4,12 @@ import pandas as pd
 import numpy as np
 import os
 import uuid
-import time 
+import time
 import joblib
 from tensorflow.keras.models import load_model
-import tensorflow as tf # ### Pastikan impor ini ada ###
+import tensorflow as tf # Dipertahankan jika custom_objects diperlukan, meskipun untuk .keras biasanya tidak
 
-# Impor fungsi dari models.py 
+# Impor fungsi dari models.py
 import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
@@ -17,10 +17,10 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 try:
-    from models import parse_log_file, preprocess_data, get_autoencoder_anomalies, get_ocsvm_anomalies
+    # Kita masih menggunakan parse_log_file dan fungsi deteksi anomali dari models.py
+    from models import parse_log_file, get_autoencoder_anomalies, get_ocsvm_anomalies
 except ImportError as e:
-    # Penanganan error impor yang lebih baik
-    if 'streamlit_app_run_first' not in st.session_state: # Flag sederhana, bisa diatur di streamlit_app.py
+    if 'streamlit_app_run_first' not in st.session_state:
         st.error(f"Gagal mengimpor modul 'models'. Pastikan 'models.py' ada di direktori root. Error: {e}")
         st.info("Jika Anda menjalankan halaman ini secara langsung (misalnya untuk debugging), coba jalankan `streamlit_app.py` terlebih dahulu untuk inisialisasi session state yang mungkin dibutuhkan.")
         st.stop()
@@ -29,39 +29,38 @@ except ImportError as e:
         st.stop()
 
 # --- Konfigurasi Path ---
-BASE_DIR = project_root 
+BASE_DIR = project_root
 MODEL_ARTIFACTS_FOLDER = os.path.join(BASE_DIR, 'trained_models_artifacts')
-UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads_streamlit') 
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads_streamlit')
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Path ke Model dan Artefak (pastikan nama file konsisten dengan yang disimpan oleh train_script.py)
-AUTOENCODER_MODEL_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "trained_autoencoder_model.h5")
-OCSVM_MODEL_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "trained_ocsvm_model.joblib")
-SCALER_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "trained_scaler.joblib")
-LABEL_ENCODERS_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "trained_label_encoders.joblib")
-TRAINING_MSE_AE_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "training_mse_ae.npy")
-
+# --- PERUBAHAN NAMA FILE ARTEFAK ---
+# Path ke Model dan Artefak (disesuaikan dengan output train_script.ipynb)
+AUTOENCODER_MODEL_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "autoencoder_model.keras") # .keras
+OCSVM_MODEL_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "ocsvm_model.pkl") # .pkl
+SCALER_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "scaler.pkl") # .pkl
+LABEL_ENCODERS_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "label_encoders.pkl") # .pkl
+MODEL_COLUMNS_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "model_columns.pkl") # Baru ditambahkan
+TRAINING_MSE_AE_PATH = os.path.join(MODEL_ARTIFACTS_FOLDER, "training_mse_ae.npy") # Opsional, train_script.ipynb tidak menyimpan ini by default
 
 # --- Fungsi Pemuatan Model dengan Cache Streamlit ---
-@st.cache_resource # Cache resource agar model tidak dimuat ulang setiap interaksi
+@st.cache_resource
 def load_anomaly_models_and_artifacts():
     """Memuat semua model dan artefak yang dibutuhkan."""
     models_artifacts = {"loaded_successfully": True, "messages": []}
-    
-    # Fungsi internal untuk memuat dan menangani error
-    def check_and_load(path, name, load_func, type_name, icon, custom_objects_dict=None):
+
+    def check_and_load(path, name, load_func, type_name, icon, is_tf_model=False):
         if os.path.exists(path):
             try:
-                if custom_objects_dict:
-                    models_artifacts[name] = load_func(path, custom_objects=custom_objects_dict)
-                else:
+                if is_tf_model: # Untuk load_model dari TensorFlow
+                    models_artifacts[name] = load_func(path) # custom_objects biasanya tidak diperlukan untuk .keras dengan loss standar
+                else: # Untuk joblib.load atau np.load
                     models_artifacts[name] = load_func(path)
                 models_artifacts["messages"].append(("success", f"{type_name} '{os.path.basename(path)}' berhasil dimuat.", icon))
             except Exception as e:
-                # Sertakan detail error yang lebih lengkap
                 full_error_message = f"Gagal memuat {type_name} '{os.path.basename(path)}': {str(e)}"
-                print(full_error_message) # Cetak ke konsol server untuk debugging
+                print(full_error_message)
                 models_artifacts["messages"].append(("error", full_error_message, "🔥"))
                 models_artifacts[name] = None
                 models_artifacts["loaded_successfully"] = False
@@ -70,22 +69,20 @@ def load_anomaly_models_and_artifacts():
             models_artifacts[name] = None
             models_artifacts["loaded_successfully"] = False
 
-    # Memuat model Autoencoder dengan custom_objects
-    check_and_load(AUTOENCODER_MODEL_PATH, "autoencoder", load_model, "Model Autoencoder", "🤖", 
-                   custom_objects_dict={'mse': tf.keras.losses.MeanSquaredError()}) # <<< PERUBAHAN DI SINI
-    
+    # --- PERUBAHAN CARA MEMUAT ---
+    check_and_load(AUTOENCODER_MODEL_PATH, "autoencoder", load_model, "Model Autoencoder", "🤖", is_tf_model=True)
     check_and_load(OCSVM_MODEL_PATH, "ocsvm", joblib.load, "Model OC-SVM", "🧩")
     check_and_load(SCALER_PATH, "scaler", joblib.load, "Scaler", "⚙️")
     check_and_load(LABEL_ENCODERS_PATH, "label_encoders", joblib.load, "Label Encoders", "🏷️")
-    
-    # Pemuatan training_mse_ae (tidak fatal jika tidak ada, tapi berikan warning)
+    check_and_load(MODEL_COLUMNS_PATH, "model_columns", joblib.load, "Kolom Model", "📊") # Memuat model_columns.pkl
+
     if os.path.exists(TRAINING_MSE_AE_PATH):
         try:
             models_artifacts["training_mse_ae"] = np.load(TRAINING_MSE_AE_PATH)
             models_artifacts["messages"].append(("success", f"Training MSE AE '{os.path.basename(TRAINING_MSE_AE_PATH)}' berhasil dimuat.", "📊"))
         except Exception as e:
             models_artifacts["messages"].append(("error", f"Gagal memuat Training MSE AE '{os.path.basename(TRAINING_MSE_AE_PATH)}': {e}", "🔥"))
-            models_artifacts["training_mse_ae"] = None # Set None jika gagal
+            models_artifacts["training_mse_ae"] = None
     else:
         models_artifacts["messages"].append(("warning", f"File training MSE Autoencoder tidak ditemukan: {os.path.basename(TRAINING_MSE_AE_PATH)}. Threshold AE akan dihitung dari data input jika file ini tidak ada.", "⚠️"))
         models_artifacts["training_mse_ae"] = None
@@ -99,9 +96,6 @@ def convert_df_to_csv(df):
 
 # --- Halaman Dashboard ---
 def run_dashboard_page():
-    # Konfigurasi halaman sebaiknya hanya di skrip utama (streamlit_app.py)
-    # st.set_page_config(page_title="Dashboard Deteksi", layout="wide", initial_sidebar_state="auto")
-    
     if not st.session_state.get("logged_in", False):
         st.warning("🔒 Anda harus login untuk mengakses halaman ini.")
         st.page_link("streamlit_app.py", label="Kembali ke Halaman Login", icon="🏠")
@@ -109,14 +103,6 @@ def run_dashboard_page():
 
     st.title("🚀 Dashboard Deteksi Anomali Akses Jaringan")
     
-    # Tombol logout di sidebar (sudah ada di streamlit_app.py, tapi bisa juga di sini jika diinginkan)
-    # st.sidebar.markdown("---") 
-    # st.sidebar.write(f"Login sebagai: **{st.session_state.get('username', 'Pengguna')}**") # Sudah ada di app utama
-    # if st.sidebar.button("Logout dari Dashboard", key="dashboard_logout_button_unique", use_container_width=True):
-    #     for key in list(st.session_state.keys()): 
-    #         del st.session_state[key]
-    #     st.switch_page("streamlit_app.py") 
-
     models_artifacts = load_anomaly_models_and_artifacts()
     
     with st.expander("ℹ️ Status Pemuatan Model & Artefak", expanded=not models_artifacts["loaded_successfully"]):
@@ -125,8 +111,16 @@ def run_dashboard_page():
             elif type_msg == "error": st.error(msg, icon=icon)
             elif type_msg == "warning": st.warning(msg, icon=icon)
 
-    if not models_artifacts["loaded_successfully"]:
-        st.error("Satu atau lebih model/artefak penting gagal dimuat. Fungsi deteksi mungkin tidak akan bekerja dengan benar. Pastikan semua artefak ada di folder `trained_models_artifacts` dan skrip `train_script.py` sudah dijalankan dengan sukses.", icon="💔")
+    critical_artifacts_missing = not (
+        models_artifacts.get("autoencoder") and
+        models_artifacts.get("ocsvm") and
+        models_artifacts.get("scaler") and
+        models_artifacts.get("label_encoders") and
+        models_artifacts.get("model_columns") # model_columns juga penting
+    )
+
+    if critical_artifacts_missing:
+        st.error("Satu atau lebih model/artefak penting (Autoencoder, OC-SVM, Scaler, Label Encoders, Model Columns) gagal dimuat. Fungsi deteksi tidak akan bekerja dengan benar. Pastikan semua artefak ada di folder `trained_models_artifacts` dan skrip `train_script.ipynb` sudah dijalankan dengan sukses.", icon="💔")
 
     st.markdown("---")
     st.header("1. Unggah File Log Fortigate")
@@ -141,7 +135,6 @@ def run_dashboard_page():
         st.markdown(f"File yang diunggah: `{uploaded_file.name}` (`{uploaded_file.size / 1024:.2f} KB`)")
         
         unique_id = str(uuid.uuid4().hex[:8])
-        # Gunakan nama file asli untuk file temporer agar lebih mudah dikenali (meskipun ada ID unik)
         temp_input_filename = f"{unique_id}_{uploaded_file.name}"
         temp_input_filepath = os.path.join(UPLOAD_FOLDER, temp_input_filename)
         
@@ -151,22 +144,21 @@ def run_dashboard_page():
         st.markdown("---")
         st.header("2. Opsi Deteksi & Proses")
         
-        ae_available = models_artifacts.get("autoencoder") is not None and models_artifacts.get("scaler") is not None
-        ocsvm_available = models_artifacts.get("ocsvm") is not None and models_artifacts.get("scaler") is not None
+        ae_available = models_artifacts.get("autoencoder") is not None and models_artifacts.get("scaler") is not None and models_artifacts.get("label_encoders") is not None and models_artifacts.get("model_columns") is not None
+        ocsvm_available = models_artifacts.get("ocsvm") is not None and models_artifacts.get("scaler") is not None and models_artifacts.get("label_encoders") is not None and models_artifacts.get("model_columns") is not None
+
 
         col1, col2 = st.columns(2)
         with col1:
             run_autoencoder = st.checkbox("Gunakan Model Autoencoder", value=True, key="cb_ae_dashboard_main_unique_key", disabled=not ae_available)
-            if not ae_available: st.caption("Model Autoencoder tidak dapat dimuat.")
+            if not ae_available: st.caption("Model Autoencoder / artefaknya tidak dapat dimuat.")
         with col2:
             run_ocsvm = st.checkbox("Gunakan Model One-Class SVM", value=True, key="cb_ocsvm_dashboard_main_unique_key", disabled=not ocsvm_available)
-            if not ocsvm_available: st.caption("Model OC-SVM tidak dapat dimuat.")
+            if not ocsvm_available: st.caption("Model OC-SVM / artefaknya tidak dapat dimuat.")
 
-        if st.button("Proses Log Sekarang 🔎", type="primary", use_container_width=True, disabled=not models_artifacts["loaded_successfully"]):
+        if st.button("Proses Log Sekarang 🔎", type="primary", use_container_width=True, disabled=critical_artifacts_missing):
             if not run_autoencoder and not run_ocsvm:
                 st.warning("Pilih setidaknya satu model deteksi untuk diproses.", icon="⚠️")
-            elif (run_autoencoder and not ae_available) or (run_ocsvm and not ocsvm_available):
-                st.error("Satu atau lebih model yang Anda pilih tidak tersedia atau gagal dimuat. Periksa status pemuatan model di atas.", icon="🚫")
             else:
                 with st.spinner("Sedang memproses log... Ini mungkin memakan waktu beberapa saat, mohon tunggu. ⏳"):
                     process_start_time = time.time()
@@ -174,34 +166,87 @@ def run_dashboard_page():
                         df_raw = parse_log_file(temp_input_filepath)
                         if df_raw.empty:
                             st.error("File log yang diunggah kosong atau gagal diparsing.", icon="❌")
-                            # Hapus file temp jika ada
                             if os.path.exists(temp_input_filepath): os.remove(temp_input_filepath)
-                            # Hentikan eksekusi lebih lanjut di blok ini jika df_raw kosong
                         else:
-                            df_scaled, _, _, _, df_original_for_output = preprocess_data(
-                                df_raw.copy(), 
-                                scaler=models_artifacts.get("scaler"), 
-                                label_encoders=models_artifacts.get("label_encoders"), 
-                                is_training=False
-                            )
+                            # --- BLOK PRA-PEMROSESAN BARU ---
+                            st.write("Melakukan pra-pemrosesan data input...")
+                            df_scaled = pd.DataFrame()
+                            df_original_for_output = pd.DataFrame()
+                            
+                            # Ambil artefak yang dibutuhkan
+                            label_encoders_loaded = models_artifacts.get("label_encoders")
+                            model_columns_trained = models_artifacts.get("model_columns")
+                            scaler_loaded = models_artifacts.get("scaler")
 
-                            if df_scaled is None or df_scaled.empty or df_original_for_output is None or df_original_for_output.empty:
+                            if not all([label_encoders_loaded, model_columns_trained, scaler_loaded]):
+                                st.error("Artefak pra-pemrosesan (Label Encoders, Model Columns, Scaler) tidak lengkap. Proses tidak dapat dilanjutkan.")
+                            else:
+                                # Kolom yang digunakan saat training (dari model_columns.pkl)
+                                features_to_use = model_columns_trained #
+                                
+                                df_temp_processed = df_raw.copy()
+                                df_model_input_display = pd.DataFrame()
+
+                                # Pastikan semua fitur yang dibutuhkan ada dari log mentah
+                                for col in features_to_use:
+                                    if col not in df_temp_processed.columns:
+                                        df_temp_processed[col] = 'Unknown' 
+                                df_model_input_display = df_temp_processed[features_to_use].copy() # Untuk ditampilkan
+                                df_model_input_for_le = df_temp_processed[features_to_use].copy()
+
+
+                                # 1. Pastikan semua fitur diperlakukan sebagai string & tangani NaN
+                                for col in features_to_use:
+                                    df_model_input_for_le[col] = df_model_input_for_le[col].astype(str).fillna('Unknown')
+
+                                # 2. Terapkan Label Encoding yang sudah di-load
+                                for col in features_to_use:
+                                    if col in label_encoders_loaded:
+                                        le = label_encoders_loaded[col]
+                                        df_model_input_for_le[col] = df_model_input_for_le[col].apply(
+                                            lambda x: le.transform([x])[0] if x in le.classes_ else -1
+                                        )
+                                        if -1 in df_model_input_for_le[col].unique():
+                                            try: # Coba transform 'Unknown'
+                                                unknown_val_enc = le.transform(['Unknown'])[0]
+                                                df_model_input_for_le[col] = df_model_input_for_le[col].replace(-1, unknown_val_enc)
+                                            except ValueError: # Jika 'Unknown' tidak ada di classes
+                                                df_model_input_for_le[col] = df_model_input_for_le[col].replace(-1, 0) # Fallback ke 0
+                                    else:
+                                        df_model_input_for_le[col] = 0 # Default jika encoder tidak ada
+
+                                # 3. Terapkan Scaler yang sudah di-load
+                                if df_model_input_for_le.shape[1] != scaler_loaded.n_features_in_:
+                                    st.error(f"Jumlah fitur untuk scaling ({df_model_input_for_le.shape[1]}) tidak cocok dengan scaler ({scaler_loaded.n_features_in_}). Fitur yg diharapkan: {features_to_use}")
+                                else:
+                                    scaled_data_values = scaler_loaded.transform(df_model_input_for_le) #
+                                    df_scaled = pd.DataFrame(scaled_data_values, columns=features_to_use, index=df_model_input_for_le.index)
+                                    df_original_for_output = df_model_input_display # Gunakan kolom asli yang dipilih untuk display
+                            # --- AKHIR BLOK PRA-PEMROSESAN BARU ---
+
+                            if df_scaled.empty or df_original_for_output.empty:
                                 st.error("Pra-pemrosesan data gagal atau menghasilkan data kosong.", icon="❌")
                             else:
                                 results_df = df_original_for_output.copy()
+                                results_df.reset_index(drop=True, inplace=True) # Reset index untuk konkatenasi
                                 
                                 if run_autoencoder:
                                     ae_anomalies, ae_mse = get_autoencoder_anomalies(
                                         models_artifacts["autoencoder"], 
                                         df_scaled, 
                                         training_mse=models_artifacts.get("training_mse_ae")
-                                    )
+                                    ) #
+                                    # Pastikan Series memiliki index yang sama sebelum assignment
+                                    ae_anomalies.index = results_df.index
+                                    ae_mse.index = results_df.index
                                     results_df['is_anomaly_ae'] = ae_anomalies
                                     results_df['reconstruction_error_ae'] = ae_mse
                                     st.info("Deteksi Autoencoder selesai.", icon="🤖")
                                 
                                 if run_ocsvm:
-                                    oc_anomalies, oc_scores = get_ocsvm_anomalies(models_artifacts["ocsvm"], df_scaled)
+                                    oc_anomalies, oc_scores = get_ocsvm_anomalies(models_artifacts["ocsvm"], df_scaled) #
+                                    oc_anomalies.index = results_df.index
+                                    oc_scores.index = results_df.index
                                     results_df['is_anomaly_ocsvm'] = oc_anomalies
                                     results_df['decision_score_ocsvm'] = oc_scores
                                     st.info("Deteksi OC-SVM selesai.", icon="🧩")
@@ -210,51 +255,65 @@ def run_dashboard_page():
                                 st.session_state["results_df"] = results_df 
                                 st.session_state["last_file_name"] = uploaded_file.name 
                                 st.session_state["last_unique_id"] = unique_id
-                                # Tidak perlu rerun di sini, biarkan hasil ditampilkan di bawah
+                                
                     except Exception as e:
                         st.error(f"Terjadi kesalahan saat memproses file: {e}", icon="🔥")
-                        print(f"Error processing file: {e}") # Untuk logging di server
+                        print(f"Error processing file: {e}") 
                     finally:
-                        # Hapus file temporer setelah diproses
                         if os.path.exists(temp_input_filepath):
                             try:
                                 os.remove(temp_input_filepath)
                             except Exception as e_del:
                                 print(f"Gagal menghapus file temporer {temp_input_filepath}: {e_del}")
-                # Setelah tombol proses ditekan dan selesai, kita ingin hasil ditampilkan
-                # st.rerun() bisa digunakan jika ada perubahan state yang perlu direfleksikan segera
-                # Namun, karena hasil disimpan di session_state, bagian di bawah akan otomatis update
+            st.rerun() # Rerun untuk update tampilan setelah tombol ditekan
 
-    # Tampilkan hasil jika ada di session state
-    if "results_df" in st.session_state and st.session_state["results_df"] is not None:
+    if "results_df" in st.session_state and st.session_state["results_df"] is not None and not st.session_state["results_df"].empty:
         st.markdown("---")
         st.header("3. Hasil Deteksi")
         
-        results_to_show = st.session_state["results_df"]
+        results_to_show = st.session_state["results_df"].copy() # Gunakan copy untuk filtering
         
-        # Opsi filter tambahan
-        st.markdown("**Filter Tampilan Hasil:**")
-        col_filter1, col_filter2 = st.columns(2)
-        with col_filter1:
-            show_only_anomalies_ae = st.checkbox("Hanya anomali Autoencoder", key="filter_ae_main_unique", value=False)
-        with col_filter2:
-            show_only_anomalies_ocsvm = st.checkbox("Hanya anomali OC-SVM", key="filter_ocsvm_main_unique", value=False)
+        # Tambahkan kolom Combined_Anomaly jika kedua model dijalankan
+        ae_col_exists = 'is_anomaly_ae' in results_to_show.columns
+        ocsvm_col_exists = 'is_anomaly_ocsvm' in results_to_show.columns
 
-        if show_only_anomalies_ae and 'is_anomaly_ae' in results_to_show.columns:
-            results_to_show = results_to_show[results_to_show['is_anomaly_ae'] == True]
-        
-        if show_only_anomalies_ocsvm and 'is_anomaly_ocsvm' in results_to_show.columns:
-            # Jika filter AE juga aktif, filter dari hasil yang sudah difilter AE
-            # Jika tidak, filter dari hasil original
-            results_to_show = results_to_show[results_to_show['is_anomaly_ocsvm'] == True]
+        if ae_col_exists and ocsvm_col_exists:
+            results_to_show['Combined_Anomaly'] = results_to_show['is_anomaly_ae'] | results_to_show['is_anomaly_ocsvm']
+        elif ae_col_exists:
+            results_to_show['Combined_Anomaly'] = results_to_show['is_anomaly_ae']
+        elif ocsvm_col_exists:
+            results_to_show['Combined_Anomaly'] = results_to_show['is_anomaly_ocsvm']
+        else: # Jika tidak ada model yang dijalankan, atau kolom anomali tidak ada
+            results_to_show['Combined_Anomaly'] = False 
             
-        if results_to_show.empty:
-            st.info("Tidak ada data yang sesuai dengan filter yang dipilih.", icon="ℹ️")
+        st.markdown("**Filter Tampilan Hasil:**")
+        col_filter1, col_filter2, col_filter3 = st.columns(3)
+        with col_filter1:
+            show_only_anomalies_ae = st.checkbox("Hanya anomali Autoencoder", key="filter_ae_main_unique", value=False, disabled=not ae_col_exists)
+        with col_filter2:
+            show_only_anomalies_ocsvm = st.checkbox("Hanya anomali OC-SVM", key="filter_ocsvm_main_unique", value=False, disabled=not ocsvm_col_exists)
+        with col_filter3:
+            show_only_combined_anomalies = st.checkbox("Hanya anomali gabungan", key="filter_combined_main_unique", value=True, disabled=not ('Combined_Anomaly' in results_to_show.columns and results_to_show['Combined_Anomaly'].any()))
+
+
+        # Terapkan filter
+        filtered_results = results_to_show.copy()
+        if show_only_anomalies_ae and ae_col_exists:
+            filtered_results = filtered_results[filtered_results['is_anomaly_ae'] == True]
+        
+        if show_only_anomalies_ocsvm and ocsvm_col_exists:
+            filtered_results = filtered_results[filtered_results['is_anomaly_ocsvm'] == True]
+        
+        if show_only_combined_anomalies and 'Combined_Anomaly' in filtered_results.columns:
+            filtered_results = filtered_results[filtered_results['Combined_Anomaly'] == True]
+            
+        if filtered_results.empty:
+            st.info("Tidak ada data yang sesuai dengan filter yang dipilih atau tidak ada anomali yang terdeteksi.", icon="ℹ️")
         else:
-            st.dataframe(results_to_show, use_container_width=True, height=400)
+            st.dataframe(filtered_results, use_container_width=True, height=400)
 
         # Tombol download selalu untuk semua hasil (sebelum difilter untuk tampilan)
-        csv_data = convert_df_to_csv(st.session_state["results_df"]) 
+        csv_data = convert_df_to_csv(results_to_show) 
         
         last_name = st.session_state.get("last_file_name", "log")
         last_id = st.session_state.get("last_unique_id", "hasil")
@@ -268,16 +327,12 @@ def run_dashboard_page():
             use_container_width=True,
             key="download_button_dashboard_main_unique"
         )
-    elif uploaded_file is None and models_artifacts.get("loaded_successfully", False): # Periksa apakah model berhasil dimuat
+    elif uploaded_file is None and not critical_artifacts_missing:
         st.info("Silakan unggah file log untuk memulai analisis.", icon="📤")
 
-# Panggil fungsi utama untuk halaman ini
 if __name__ == "__main__":
-    # Ini akan dijalankan jika Anda menjalankan `python pages/1_Dashboard.py` secara langsung
-    # Untuk pengujian, pastikan st.session_state disimulasikan
     if "logged_in" not in st.session_state:
-        st.session_state.logged_in = True # Simulasikan login untuk pengujian langsung
+        st.session_state.logged_in = True 
         st.session_state.username = "Penguji Dashboard"
-        # st.session_state.streamlit_app_run_first = True # Tandai bahwa dashboard dijalankan
     
     run_dashboard_page()
