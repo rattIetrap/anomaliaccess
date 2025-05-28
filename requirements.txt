@@ -6,3 +6,4 @@ tensorflow==2.19.0 # Atau versi TensorFlow yang Anda gunakan
 joblib==1.5.1      # Atau versi joblib yang Anda gunakan
 matplotlib
 seaborn
+openpyxl
