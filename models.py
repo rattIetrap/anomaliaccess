@@ -15,22 +15,28 @@ import joblib # Untuk menyimpan dan memuat model scikit-learn
 
 # --- Fungsi Pra-pemrosesan Data ---
 def ip_to_int(ip_series):
-    """Mengonversi serangkaian alamat IP string menjadi integer."""
-    return ip_series.apply(lambda ip: int(''.join([f"{int(octet):03d}" for octet in ip.split('.')])) if pd.notnull(ip) and isinstance(ip, str) and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip) else np.nan)
+    """Mengonversi serangkaian alamat IP string menjadi integer."""return ip_series.apply(lambda ip: int(''.join([f"{int(octet):03d}" for octet in ip.split('.')])) if pd.notnull(ip) and isinstance(ip, str) and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip) else np.nan)
 
 def parse_log_file(file_path):
     """
     Mem-parsing file log Fortigate (.txt) menjadi Pandas DataFrame.
     Format log diasumsikan sebagai baris-baris key=value.
+    SETIAP RECORD SEKARANG AKAN MENYERTAKAN FIELD '_raw_log_line_'
     """
     records = []
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
+            for line_content in f: # Tidak perlu enumerate jika tidak dipakai
+                raw_line_for_record = line_content.strip() # Simpan baris log mentah
+                if not raw_line_for_record: # Lewati baris kosong
+                    continue
+                
                 # Mencocokkan pasangan key=value, termasuk value yang mengandung spasi jika diapit tanda kutip
-                pairs = re.findall(r'(\w+)=(".*?"|\S+)', line)
+                pairs = re.findall(r'(\w+)=(".*?"|\S+)', line_content)
                 record = {key: value.strip('"') for key, value in pairs}
+                
                 if record: # Hanya tambahkan jika record tidak kosong
+                    record['_raw_log_line_'] = raw_line_for_record # Tambahkan baris log mentah ke record
                     records.append(record)
     except FileNotFoundError:
         print(f"Error: File log tidak ditemukan di {file_path}")
