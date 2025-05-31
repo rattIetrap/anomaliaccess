@@ -15,7 +15,8 @@ import joblib # Untuk menyimpan dan memuat model scikit-learn
 
 # --- Fungsi Pra-pemrosesan Data ---
 def ip_to_int(ip_series):
-    """Mengonversi serangkaian alamat IP string menjadi integer."""return ip_series.apply(lambda ip: int(''.join([f"{int(octet):03d}" for octet in ip.split('.')])) if pd.notnull(ip) and isinstance(ip, str) and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip) else np.nan)
+    """Mengonversi serangkaian alamat IP string menjadi integer."""
+    return ip_series.apply(lambda ip: int(''.join([f"{int(octet):03d}" for octet in ip.split('.')])) if pd.notnull(ip) and isinstance(ip, str) and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip) else np.nan) # PERBAIKAN: return statement di baris yang benar
 
 def parse_log_file(file_path):
     """
