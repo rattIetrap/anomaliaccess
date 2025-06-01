@@ -16,28 +16,48 @@ import joblib # Untuk menyimpan dan memuat model scikit-learn
 # --- Fungsi Pra-pemrosesan Data ---
 def ip_to_int(ip_series):
     """Mengonversi serangkaian alamat IP string menjadi integer."""
-    return ip_series.apply(lambda ip: int(''.join([f"{int(octet):03d}" for octet in ip.split('.')])) if pd.notnull(ip) and isinstance(ip, str) and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip) else np.nan) # PERBAIKAN: return statement di baris yang benar
+    return ip_series.apply(lambda ip: int(''.join([f"{int(octet):03d}" for octet in ip.split('.')])) if pd.notnull(ip) and isinstance(ip, str) and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip) else np.nan)
 
 def parse_log_file(file_path):
     """
     Mem-parsing file log Fortigate (.txt) menjadi Pandas DataFrame.
-    Format log diasumsikan sebagai baris-baris key=value.
-    SETIAP RECORD SEKARANG AKAN MENYERTAKAN FIELD '_raw_log_line_'
+    Menangani header syslog dan menyimpan baris log mentah.
     """
     records = []
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            for line_content in f: # Tidak perlu enumerate jika tidak dipakai
-                raw_line_for_record = line_content.strip() # Simpan baris log mentah
+            for line_content in f:
+                raw_line_for_record = line_content.strip()
                 if not raw_line_for_record: # Lewati baris kosong
                     continue
                 
-                # Mencocokkan pasangan key=value, termasuk value yang mengandung spasi jika diapit tanda kutip
-                pairs = re.findall(r'(\w+)=(".*?"|\S+)', line_content)
+                # Cari awal dari bagian key=value (misalnya, dimulai dengan "date=")
+                # Ini penting jika ada header syslog di awal baris
+                kv_part_start_index = raw_line_for_record.find("date=") 
+                if kv_part_start_index == -1: # Fallback jika "date=" tidak ditemukan
+                    kv_part_start_index = raw_line_for_record.find("devname=") 
+                # Anda bisa menambahkan fallback lain jika diperlukan
+
+                if kv_part_start_index != -1:
+                    kv_string_to_parse = raw_line_for_record[kv_part_start_index:]
+                else:
+                    # Jika tidak ada penanda key=value yang jelas,
+                    # ini bisa berarti baris tersebut bukan format log yang diharapkan
+                    # atau seluruh baris adalah key-value (misalnya, jika header sudah dihilangkan sebelumnya)
+                    # Untuk saat ini, kita asumsikan jika tidak ada "date=" atau "devname=", baris ini mungkin tidak valid
+                    # Namun, jika format Anda kadang tidak memiliki "date=" di awal KV, sesuaikan ini.
+                    # Atau, jika Anda yakin semua baris valid setelah "dataclean.ipynb" harus punya KV,
+                    # Anda bisa mencoba mem-parse seluruh raw_line_for_record, tapi hati-hati.
+                    # Untuk sekarang, kita lewati jika tidak ada penanda:
+                    # print(f"Peringatan: Penanda 'date=' atau 'devname=' tidak ditemukan pada baris: {raw_line_for_record[:100]}...")
+                    kv_string_to_parse = raw_line_for_record # Coba parse seluruh baris jika tidak ada penanda
+
+                # Mencocokkan pasangan key=value
+                pairs = re.findall(r'(\w+)=(".*?"|\S+)', kv_string_to_parse)
                 record = {key: value.strip('"') for key, value in pairs}
                 
-                if record: # Hanya tambahkan jika record tidak kosong
-                    record['_raw_log_line_'] = raw_line_for_record # Tambahkan baris log mentah ke record
+                if record: # Hanya tambahkan jika parsing key-value menghasilkan sesuatu
+                    record['_raw_log_line_'] = raw_line_for_record # Tambahkan SELURUH baris log mentah
                     records.append(record)
     except FileNotFoundError:
         print(f"Error: File log tidak ditemukan di {file_path}")
