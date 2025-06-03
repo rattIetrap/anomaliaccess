@@ -393,20 +393,45 @@ def run_dashboard_page():
                     st.info("Tidak ada anomali oleh OC-SVM.")
             st.markdown("---")
 
-        # --- Penjelasan Metrik Evaluasi Klasik ---
+        # --- Penjelasan Metrik Evaluasi yang Digunakan & Metrik Klasik ---
         with st.container(border=True):
-            st.subheader("📖 Penjelasan Metrik Evaluasi Klasik (Membutuhkan Label Ground Truth)")
-            st.markdown("""
-            Metrik evaluasi klasik seperti **Precision, Recall, F1-Score, dan ROC Curve (AUC)** umumnya digunakan untuk menilai performa model klasifikasi, termasuk deteksi anomali jika kita memiliki data dengan label yang benar (ground truth).
-
-            - **Precision**: Dari semua item yang diprediksi sebagai anomali oleh model, berapa persentase yang benar-benar anomali?
-                - *Formula*: `True Positives / (True Positives + False Positives)`
-            - **Recall (Sensitivity/True Positive Rate)**: Dari semua item yang sebenarnya anomali, berapa persentase yang berhasil dideteksi oleh model?
-                - *Formula*: `True Positives / (True Positives + False Negatives)`
-            - **F1-Score**: Rata-rata harmonik dari Precision dan Recall.
-                - *Formula*: `2 * (Precision * Recall) / (Precision + Recall)`
-            - **ROC Curve & AUC (Area Under the Curve)**: Kurva True Positive Rate vs. False Positive Rate. AUC mengukur area di bawah kurva ini.
+            st.subheader("📖 Penjelasan Metrik dan Pendekatan Evaluasi Model")
             
+            st.markdown("""
+            Dalam sistem deteksi anomali unsupervised ini, kita tidak memiliki label ground truth (data yang sudah diketahui pasti mana yang normal dan mana yang anomali) untuk data log yang baru diunggah. Oleh karena itu, evaluasi model lebih difokuskan pada bagaimana model membedakan data berdasarkan apa yang telah dipelajarinya dari data training normal.
+            """)
+
+            st.markdown("#### 1. Reconstruction Error (MSE) - Model Autoencoder")
+            st.markdown("""
+            - **Apa itu?**: Autoencoder dilatih untuk merekonstruksi data input "normal" dengan error yang sekecil mungkin. *Mean Squared Error* (MSE) atau *Reconstruction Error* adalah ukuran seberapa besar perbedaan antara log asli dan log hasil rekonstruksi oleh Autoencoder.
+            - **Bagaimana Digunakan untuk Deteksi Anomali?**:
+                - Log yang memiliki pola mirip dengan data training normal akan memiliki MSE yang rendah.
+                - Log yang memiliki pola sangat berbeda (potensi anomali) akan menghasilkan MSE yang tinggi karena model kesulitan merekonstruksinya.
+            - **Threshold**: Sebuah nilai ambang (threshold) ditentukan (idealnya dari persentil MSE pada data training normal, atau sebagai fallback dari data saat ini). Log dengan MSE di atas threshold ini ditandai sebagai anomali.
+            - **Interpretasi di Dashboard Ini**: Grafik distribusi MSE menunjukkan sebaran error untuk data yang diunggah. Log yang jatuh di area dengan MSE tinggi (melebihi garis threshold) adalah yang dicurigai sebagai anomali oleh Autoencoder. Semakin tinggi MSE, semakin "berbeda" log tersebut dari yang dianggap normal.
+            """)
+
+            st.markdown("#### 2. Decision Score - Model One-Class SVM")
+            st.markdown("""
+            - **Apa itu?**: One-Class SVM (OC-SVM) belajar sebuah batas (boundary) yang melingkupi data normal saat training. *Decision Score* untuk data baru mengukur jarak data tersebut dari batas ini.
+            - **Bagaimana Digunakan untuk Deteksi Anomali?**:
+                - Log yang berada di dalam atau pada batas yang dipelajari akan mendapatkan skor non-negatif (biasanya positif).
+                - Log yang berada di luar batas akan mendapatkan skor negatif.
+            - **Threshold**: Secara default, skor kurang dari 0 menandakan anomali.
+            - **Interpretasi di Dashboard Ini**: Grafik distribusi Decision Score menunjukkan sebaran skor untuk data yang diunggah. Log dengan skor negatif (di sebelah kiri garis threshold 0) ditandai sebagai anomali oleh OC-SVM. Semakin negatif skornya, semakin dianggap "jauh" dari wilayah normal oleh model.
+            """)
+
+            st.markdown("#### 3. Metrik Evaluasi Klasik (Precision, Recall, F1-Score, ROC/AUC)")
+            st.markdown("""
+            Metrik evaluasi klasik ini sangat berguna untuk menilai performa model klasifikasi secara kuantitatif, **namun mereka memerlukan data yang sudah memiliki label ground truth (informasi benar/salahnya setiap prediksi).**
+
+            - **Precision**: Dari semua yang diprediksi sebagai anomali, berapa banyak yang *benar-benar* anomali?
+                - _Formula Umum_: `True Positives / (True Positives + False Positives)`
+            - **Recall (Sensitivity)**: Dari semua yang *sebenarnya* anomali, berapa banyak yang berhasil *terdeteksi* oleh model?
+                - _Formula Umum_: `True Positives / (True Positives + False Negatives)`
+            - **F1-Score**: Rata-rata harmonik dari Precision dan Recall, memberikan keseimbangan antara keduanya.
+                - _Formula Umum_: `2 * (Precision * Recall) / (Precision + Recall)`
+            - **ROC Curve & AUC**: Menggambarkan kemampuan model dalam membedakan kelas pada berbagai threshold. AUC (Area Under the Curve) yang lebih tinggi menunjukkan performa yang lebih baik.            
             **Catatan Penting untuk Aplikasi Ini:**
             Aplikasi ini mendeteksi anomali pada file log baru yang **tidak memiliki label ground truth**. Oleh karena itu, **nilai aktual Precision, Recall, F1-Score, dan AUC tidak dapat dihitung secara langsung di sini.**
             """)
