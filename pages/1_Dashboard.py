@@ -289,17 +289,20 @@ def run_dashboard_page():
                             except Exception as e_del: print(f"Gagal hapus temp: {e_del}")
     
       # --- Bagian 3: Hasil Deteksi & Metrik Evaluasi ---
+ # --- Bagian 3: Hasil Deteksi & Metrik Evaluasi ---
+    # Hanya tampilkan bagian ini jika detection_output ADA dan df_full_parsed_for_display di dalamnya TIDAK KOSONG
     if st.session_state.get("detection_output") is not None:
+        output = st.session_state.detection_output
+        df_for_display_and_download = output.get("df_full_parsed_for_display") 
+
         st.markdown("---")
         st.header("3. Hasil Deteksi & Metrik Evaluasi")
 
-        output = st.session_state.detection_output
-        df_for_display_and_download = output.get("df_full_parsed_for_display") 
-        uploaded_file_name = output.get("uploaded_file_name", "log_diunggah")
-        
         if df_for_display_and_download is None or df_for_display_and_download.empty:
-            st.info("Tidak ada data untuk ditampilkan.")
-            return
+            if output.get("error_message"): # Jika ada pesan error dari blok proses
+                st.warning(f"Proses tidak selesai dengan sempurna: {output.get('error_message')}")
+            st.info("Tidak ada data log yang berhasil diproses untuk ditampilkan.")
+            return # Hentikan di sini jika tidak ada data dasar untuk ditampilkan
 
         total_records = len(df_for_display_and_download)
         
