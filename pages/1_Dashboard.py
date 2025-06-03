@@ -288,20 +288,20 @@ def run_dashboard_page():
                             try: os.remove(temp_input_filepath)
                             except Exception as e_del: print(f"Gagal hapus temp: {e_del}")
     
-    # --- Bagian 3: Hasil Deteksi & Metrik Evaluasi ---
+      # --- Bagian 3: Hasil Deteksi & Metrik Evaluasi ---
     if st.session_state.get("detection_output") is not None:
         st.markdown("---")
         st.header("3. Hasil Deteksi & Metrik Evaluasi")
 
         output = st.session_state.detection_output
-        df_full_parsed_for_display = output.get("df_full_parsed_with_raw_log") 
+        df_for_display_and_download = output.get("df_full_parsed_for_display") 
         uploaded_file_name = output.get("uploaded_file_name", "log_diunggah")
         
-        if df_full_parsed_for_display is None or df_full_parsed_for_display.empty:
+        if df_for_display_and_download is None or df_for_display_and_download.empty:
             st.info("Tidak ada data untuk ditampilkan.")
             return
 
-        total_records = len(df_full_parsed_for_display)
+        total_records = len(df_for_display_and_download)
         
         st.subheader("📈 Ringkasan Deteksi")
         col_m1, col_m2, col_m3 = st.columns(3)
@@ -328,39 +328,67 @@ def run_dashboard_page():
             with st.container(border=True):
                 st.subheader("Autoencoder: Hasil Deteksi & Evaluasi")
                 if ae_mse_series_current is not None and not ae_mse_series_current.empty:
-                    st.write("**Reconstruction Error (MSE) untuk Data Unggahan:**")
-                    fig_ae, ax_ae = plt.subplots(); sns.histplot(ae_mse_series_current, kde=True, ax=ax_ae, bins=50)
-                    ax_ae.set_title("Distribusi Reconstruction Error (MSE) - Autoencoder"); ax_ae.set_xlabel("MSE"); ax_ae.set_ylabel("Frekuensi")
+                    st.write("**Grafik Distribusi Reconstruction Error (MSE):**")
+                    fig_ae, ax_ae = plt.subplots()
+                    sns.histplot(ae_mse_series_current, kde=True, ax=ax_ae, bins=50,
+                                 label="Distribusi MSE Data Unggahan", color="skyblue")
+                    ax_ae.set_title("Distribusi Reconstruction Error (MSE) - Autoencoder")
+                    ax_ae.set_xlabel("Mean Squared Error (MSE)")
+                    ax_ae.set_ylabel("Frekuensi")
+                    
                     training_mse_values = models_artifacts.get("training_mse_ae")
-                    threshold_val_ae = 0; threshold_source = "Default (Tidak ada data MSE)"
+                    threshold_val_ae = 0 
+                    threshold_source = "Tidak dapat ditentukan"
                     if training_mse_values is not None and len(training_mse_values) > 0:
-                        threshold_val_ae = np.percentile(training_mse_values, 95); threshold_source = "Data Training"
+                        threshold_val_ae = np.percentile(training_mse_values, 95) # Ambil dari training
+                        threshold_source = "Data Training (Persentil ke-95)"
                     elif not ae_mse_series_current.empty:
-                        threshold_val_ae = np.percentile(ae_mse_series_current, 95); threshold_source = "Data Unggahan (Fallback)"
-                    if threshold_source != "Default (Tidak ada data MSE)" : ax_ae.axvline(threshold_val_ae, color='r', linestyle='--', label=f'Threshold ({threshold_val_ae:.4f}) dari {threshold_source}')
-                    ax_ae.legend(); st.pyplot(fig_ae); plt.close(fig_ae) # Penting untuk menutup figure
-                    st.markdown("""**Penjelasan Reconstruction Error:** Error ini mengukur seberapa baik Autoencoder dapat merekonstruksi data input. Nilai error yang tinggi (di atas threshold) menunjukkan bahwa data tersebut berbeda dari pola normal yang dipelajari model dan kemungkinan adalah anomali.""")
-                else: st.info("Data MSE untuk Autoencoder tidak tersedia.")
+                        threshold_val_ae = np.percentile(ae_mse_series_current, 95) # Fallback ke data saat ini
+                        threshold_source = "Data Unggahan Saat Ini (Persentil ke-95 - Fallback)"
+                    
+                    if threshold_source != "Tidak dapat ditentukan":
+                         ax_ae.axvline(threshold_val_ae, color='r', linestyle='--', 
+                                       label=f'Threshold Anomali ({threshold_val_ae:.4f})\nSumber: {threshold_source}')
+                    ax_ae.legend()
+                    st.pyplot(fig_ae)
+                    plt.close(fig_ae) 
+
+                    st.markdown(f"""
+                    **Penjelasan Reconstruction Error (MSE Score Model untuk AE):**
+                    - Grafik di atas menunjukkan bagaimana sebaran nilai *Mean Squared Error* (MSE) atau *Reconstruction Error* dari model Autoencoder untuk setiap baris log dalam data yang Anda unggah.
+                    - MSE mengukur seberapa besar perbedaan (error) antara log asli dan log hasil rekonstruksi oleh Autoencoder. Model ini dilatih untuk merekonstruksi data normal dengan error yang rendah.
+                    - **Threshold (Garis Merah)**: Batas ini ditentukan (idealnya dari data training normal, atau sebagai fallback dari data saat ini) untuk memisahkan data normal dan anomali. Nilai threshold saat ini adalah **{threshold_val_ae:.4f}** (bersumber dari: {threshold_source}).
+                    - **Interpretasi:**
+                        - Log dengan MSE **di bawah threshold** dianggap mirip dengan data normal yang telah dipelajari model.
+                        - Log dengan MSE **di atas threshold** dianggap sebagai **anomali**, karena model kesulitan merekonstruksinya dengan baik. Semakin tinggi MSE, semakin besar kemungkinan log tersebut adalah anomali atau sangat berbeda dari pola normal.
+                    """)
+                else: 
+                    st.info("Data MSE untuk Autoencoder tidak tersedia (model mungkin tidak dijalankan atau tidak ada hasil).")
                 
                 if not ae_anomalies_indices.empty:
-                    st.write(f"**Tabel Log Anomali - Autoencoder:** ({len(ae_anomalies_indices)} log)")
-                    anomalous_ae_df_display = df_full_parsed_for_display.loc[ae_anomalies_indices].copy()
+                    st.write(f"**Tabel Log Anomali Terdeteksi oleh Autoencoder:** ({len(ae_anomalies_indices)} log)")
+                    anomalous_ae_df_display = df_for_display_and_download.loc[ae_anomalies_indices].copy()
                     anomalous_ae_df_display['AE_MSE_Score'] = ae_mse_series_current.loc[ae_anomalies_indices].values
-                    # Tampilkan semua kolom parsed + _raw_log_line_ + skor
-                    st.dataframe(anomalous_ae_df_display, height=300) 
+                    # Kolom yang akan ditampilkan di tabel dashboard
+                    cols_to_show_in_dashboard = ['_raw_log_line_', 'AE_MSE_Score'] + [col for col in models_artifacts.get("model_columns", []) if col in anomalous_ae_df_display.columns and col != '_raw_log_line_']
+                    # Pastikan _raw_log_line_ ada di awal jika ada
+                    if '_raw_log_line_' not in cols_to_show_in_dashboard:
+                        cols_to_show_in_dashboard = ['_raw_log_line_'] + [c for c in cols_to_show_in_dashboard if c != '_raw_log_line_']
                     
-                    # Excel untuk diunduh: semua kolom parsed dari df_full_parsed_for_display (termasuk _raw_log_line_)
-                    # TANPA skor MSE
-                    df_ae_anomalies_for_excel = df_full_parsed_for_display.loc[ae_anomalies_indices]
-                    excel_data_ae = convert_df_to_excel(df_ae_anomalies_for_excel) 
+                    # Filter kolom agar hanya yang ada di DataFrame
+                    cols_to_show_in_dashboard = [col for col in cols_to_show_in_dashboard if col in anomalous_ae_df_display.columns]
+
+                    st.dataframe(anomalous_ae_df_display[cols_to_show_in_dashboard], height=300)
+                    
+                    excel_data_ae = convert_df_to_excel(df_for_display_and_download.loc[ae_anomalies_indices]) 
                     st.download_button(
                         label="📥 Unduh Log Anomali AE (Excel, Semua Field Parsed + Raw Log)", data=excel_data_ae,
                         file_name=f"anomalies_AE_details_{uploaded_file_name}.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-                        key="download_ae_excel_v14"
+                        key="download_ae_excel_v15" # Key unik
                     )
                 else:
-                    st.info("Tidak ada anomali oleh Autoencoder.")
+                    st.info("Tidak ada anomali oleh Autoencoder pada data ini.")
             st.markdown("---")
 
         # --- Evaluasi Model One-Class SVM ---
@@ -368,47 +396,95 @@ def run_dashboard_page():
             with st.container(border=True):
                 st.subheader("One-Class SVM: Hasil Deteksi & Evaluasi")
                 if ocsvm_scores_series_current is not None and not ocsvm_scores_series_current.empty:
-                    st.write("**Distribusi Decision Score untuk Data Unggahan:**")
-                    fig_ocsvm, ax_ocsvm = plt.subplots(); sns.histplot(ocsvm_scores_series_current, kde=True, ax=ax_ocsvm, bins=50, color="green")
-                    ax_ocsvm.set_title("Distribusi Decision Score (OC-SVM)"); ax_ocsvm.set_xlabel("Decision Score"); ax_ocsvm.set_ylabel("Frekuensi")
-                    ax_ocsvm.axvline(0, color='r', linestyle='--', label='Threshold (< 0 Anomali)'); ax_ocsvm.legend(); st.pyplot(fig_ocsvm); plt.close(fig_ocsvm) # Penting untuk menutup figure
-                    st.markdown("""**Penjelasan Decision Score (OC-SVM):** Skor ini menunjukkan jarak data dari batas keputusan. Skor negatif adalah anomali.""")
-                else: st.info("Data Decision Score untuk OC-SVM tidak tersedia.")
+                    st.write("**Grafik Distribusi Decision Score:**")
+                    fig_ocsvm, ax_ocsvm = plt.subplots()
+                    sns.histplot(ocsvm_scores_series_current, kde=True, ax=ax_ocsvm, bins=50, color="green",
+                                 label="Distribusi Skor Data Unggahan")
+                    ax_ocsvm.set_title("Distribusi Decision Score (OC-SVM)")
+                    ax_ocsvm.set_xlabel("Decision Score")
+                    ax_ocsvm.set_ylabel("Frekuensi")
+                    ax_ocsvm.axvline(0, color='r', linestyle='--', label='Threshold Anomali (Skor < 0)')
+                    ax_ocsvm.legend()
+                    st.pyplot(fig_ocsvm)
+                    plt.close(fig_ocsvm)
+
+                    st.markdown(f"""
+                    **Penjelasan Decision Score (Skor Model untuk OC-SVM):**
+                    - Grafik di atas menunjukkan bagaimana sebaran nilai *Decision Score* dari model One-Class SVM untuk setiap baris log dalam data yang Anda unggah.
+                    - Decision Score dari OC-SVM mengukur sejauh mana sebuah data point berada dari "batas normalitas" yang dipelajari model dari data training.
+                    - **Threshold (Garis Merah)**: Untuk OC-SVM, skor **kurang dari 0** umumnya menandakan anomali.
+                    - **Interpretasi:**
+                        - Log dengan skor **positif (>= 0)** cenderung dianggap **normal** karena berada di dalam atau pada batas yang dipelajari model.
+                        - Log dengan skor **negatif (< 0)** dianggap sebagai **anomali**. Semakin negatif (jauh dari 0 ke arah kiri) skor sebuah log, semakin dianggap "tidak normal" atau berbeda dari data training oleh model OC-SVM.
+                    """)
+                else: 
+                    st.info("Data Decision Score untuk OC-SVM tidak tersedia.")
 
                 if not ocsvm_anomalies_indices.empty:
-                    st.write(f"**Tabel Log Anomali - OC-SVM:** ({len(ocsvm_anomalies_indices)} log)")
-                    anomalous_ocsvm_df_display = df_full_parsed_for_display.loc[ocsvm_anomalies_indices].copy()
+                    st.write(f"**Tabel Log Anomali Terdeteksi oleh OC-SVM:** ({len(ocsvm_anomalies_indices)} log)")
+                    anomalous_ocsvm_df_display = df_for_display_and_download.loc[ocsvm_anomalies_indices].copy()
                     anomalous_ocsvm_df_display['OCSVM_Decision_Score'] = ocsvm_scores_series_current.loc[ocsvm_anomalies_indices].values
-                    st.dataframe(anomalous_ocsvm_df_display, height=300)
+                    
+                    cols_to_show_in_dashboard_ocsvm = ['_raw_log_line_', 'OCSVM_Decision_Score'] + [col for col in models_artifacts.get("model_columns", []) if col in anomalous_ocsvm_df_display.columns and col != '_raw_log_line_']
+                    if '_raw_log_line_' not in cols_to_show_in_dashboard_ocsvm:
+                        cols_to_show_in_dashboard_ocsvm = ['_raw_log_line_'] + [c for c in cols_to_show_in_dashboard_ocsvm if c != '_raw_log_line_']
+                    cols_to_show_in_dashboard_ocsvm = [col for col in cols_to_show_in_dashboard_ocsvm if col in anomalous_ocsvm_df_display.columns]
 
-                    df_ocsvm_anomalies_for_excel = df_full_parsed_for_display.loc[ocsvm_anomalies_indices]
-                    excel_data_ocsvm = convert_df_to_excel(df_ocsvm_anomalies_for_excel)
+                    st.dataframe(anomalous_ocsvm_df_display[cols_to_show_in_dashboard_ocsvm], height=300)
+
+                    excel_data_ocsvm = convert_df_to_excel(df_for_display_and_download.loc[ocsvm_anomalies_indices])
                     st.download_button(
                         label="📥 Unduh Log Anomali OC-SVM (Excel, Semua Field Parsed + Raw Log)", data=excel_data_ocsvm,
                         file_name=f"anomalies_OCSVM_details_{uploaded_file_name}.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="download_ocsvm_excel_v14"
+                        key="download_ocsvm_excel_v15" # Key unik
                     )
                 else:
-                    st.info("Tidak ada anomali oleh OC-SVM.")
+                    st.info("Tidak ada anomali oleh OC-SVM pada data ini.")
             st.markdown("---")
 
-        # --- Penjelasan Metrik Evaluasi Klasik ---
+        # --- Penjelasan Metrik Evaluasi yang Digunakan & Metrik Klasik ---
         with st.container(border=True):
-            st.subheader("📖 Penjelasan Metrik Evaluasi Klasik (Membutuhkan Label Ground Truth)")
-            st.markdown("""
-            Metrik evaluasi klasik seperti **Precision, Recall, F1-Score, dan ROC Curve (AUC)** umumnya digunakan untuk menilai performa model klasifikasi, termasuk deteksi anomali jika kita memiliki data dengan label yang benar (ground truth).
-
-            - **Precision**: Dari semua item yang diprediksi sebagai anomali oleh model, berapa persentase yang benar-benar anomali?
-                - *Formula*: `True Positives / (True Positives + False Positives)`
-            - **Recall (Sensitivity/True Positive Rate)**: Dari semua item yang sebenarnya anomali, berapa persentase yang berhasil dideteksi oleh model?
-                - *Formula*: `True Positives / (True Positives + False Negatives)`
-            - **F1-Score**: Rata-rata harmonik dari Precision dan Recall.
-                - *Formula*: `2 * (Precision * Recall) / (Precision + Recall)`
-            - **ROC Curve & AUC (Area Under the Curve)**: Kurva True Positive Rate vs. False Positive Rate. AUC mengukur area di bawah kurva ini.
+            st.subheader("📖 Penjelasan Metrik dan Pendekatan Evaluasi Model")
             
+            st.markdown("""
+            Dalam sistem deteksi anomali unsupervised ini, kita tidak memiliki label ground truth (data yang sudah diketahui pasti mana yang normal dan mana yang anomali) untuk data log yang baru diunggah. Oleh karena itu, evaluasi model lebih difokuskan pada bagaimana model membedakan data berdasarkan apa yang telah dipelajarinya dari data training normal.
+            """)
+
+            st.markdown("#### 1. Reconstruction Error (MSE) - Model Autoencoder")
+            st.markdown("""
+            - **Apa itu?**: Autoencoder dilatih untuk merekonstruksi data input "normal" dengan error yang sekecil mungkin. *Mean Squared Error* (MSE) atau *Reconstruction Error* adalah ukuran seberapa besar perbedaan antara log asli dan log hasil rekonstruksi oleh Autoencoder.
+            - **Bagaimana Digunakan untuk Deteksi Anomali?**:
+                - Log yang memiliki pola mirip dengan data training normal akan memiliki MSE yang rendah.
+                - Log yang memiliki pola sangat berbeda (potensi anomali) akan menghasilkan MSE yang tinggi karena model kesulitan merekonstruksinya.
+            - **Threshold**: Sebuah nilai ambang (threshold) ditentukan (idealnya dari persentil MSE pada data training normal, atau sebagai fallback dari data saat ini). Log dengan MSE di atas threshold ini ditandai sebagai anomali.
+            - **Interpretasi di Dashboard Ini**: Grafik distribusi MSE menunjukkan sebaran error untuk data yang diunggah. Log yang jatuh di area dengan MSE tinggi (melebihi garis threshold) adalah yang dicurigai sebagai anomali oleh Autoencoder. Semakin tinggi MSE, semakin "berbeda" log tersebut dari yang dianggap normal.
+            """)
+
+            st.markdown("#### 2. Decision Score - Model One-Class SVM")
+            st.markdown("""
+            - **Apa itu?**: One-Class SVM (OC-SVM) belajar sebuah batas (boundary) yang melingkupi data normal saat training. *Decision Score* untuk data baru mengukur jarak data tersebut dari batas ini.
+            - **Bagaimana Digunakan untuk Deteksi Anomali?**:
+                - Log yang berada di dalam atau pada batas yang dipelajari akan mendapatkan skor non-negatif (biasanya positif).
+                - Log yang berada di luar batas akan mendapatkan skor negatif.
+            - **Threshold**: Secara default, skor kurang dari 0 menandakan anomali.
+            - **Interpretasi di Dashboard Ini**: Grafik distribusi Decision Score menunjukkan sebaran skor untuk data yang diunggah. Log dengan skor negatif (di sebelah kiri garis threshold 0) ditandai sebagai anomali oleh OC-SVM. Semakin negatif skornya, semakin dianggap "jauh" dari wilayah normal oleh model.
+            """)
+
+            st.markdown("#### 3. Metrik Evaluasi Klasik (Precision, Recall, F1-Score, ROC/AUC)")
+            st.markdown("""
+            Metrik evaluasi klasik ini sangat berguna untuk menilai performa model klasifikasi secara kuantitatif, **namun mereka memerlukan data yang sudah memiliki label ground truth (informasi benar/salahnya setiap prediksi).**
+
+            - **Precision**: Dari semua yang diprediksi sebagai anomali, berapa banyak yang *benar-benar* anomali?
+                - _Formula Umum_: `True Positives / (True Positives + False Positives)`
+            - **Recall (Sensitivity)**: Dari semua yang *sebenarnya* anomali, berapa banyak yang berhasil *terdeteksi* oleh model?
+                - _Formula Umum_: `True Positives / (True Positives + False Negatives)`
+            - **F1-Score**: Rata-rata harmonik dari Precision dan Recall, memberikan keseimbangan antara keduanya.
+                - _Formula Umum_: `2 * (Precision * Recall) / (Precision + Recall)`
+            - **ROC Curve & AUC**: Menggambarkan kemampuan model dalam membedakan kelas pada berbagai threshold. AUC (Area Under the Curve) yang lebih tinggi menunjukkan performa yang lebih baik.
+
             **Catatan Penting untuk Aplikasi Ini:**
-            Aplikasi ini mendeteksi anomali pada file log baru yang **tidak memiliki label ground truth**. Oleh karena itu, **nilai aktual Precision, Recall, F1-Score, dan AUC tidak dapat dihitung secara langsung di sini.**
+            Karena aplikasi ini mendeteksi anomali pada file log baru yang **tidak memiliki label ground truth** yang diverifikasi sebelumnya, maka **nilai aktual Precision, Recall, F1-Score, dan AUC tidak dapat dihitung secara langsung di sini.** Evaluasi utama didasarkan pada skor intrinsik model (MSE dan Decision Score) dan analisis kualitatif terhadap log yang ditandai sebagai anomali. Untuk mendapatkan metrik klasik tersebut, Anda memerlukan dataset uji terpisah yang sudah dilabeli.
             """)
         
     elif uploaded_file is None and not critical_artifacts_missing:
@@ -416,6 +492,7 @@ def run_dashboard_page():
 
 # Panggil fungsi utama
 if __name__ == "__main__":
+    # ... (Inisialisasi session_state untuk pengujian langsung tetap sama) ...
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = True
         st.session_state.username = "Penguji Dashboard"
@@ -423,6 +500,6 @@ if __name__ == "__main__":
     if "models_artifacts_loaded" not in st.session_state: 
         st.session_state.models_artifacts_loaded = load_anomaly_models_and_artifacts()
     if "detection_output" not in st.session_state:
-        st.session_state.detection_output = None
+        st.session_state.detection_output = None # Atau {} jika Anda lebih suka
     
     run_dashboard_page()
