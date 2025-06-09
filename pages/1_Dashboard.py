@@ -14,13 +14,13 @@ import io # Diperlukan untuk konversi ke Excel
 
 # Impor fungsi dari models.py
 import sys
-current_dir = os.path.dirname(os.path.abspath(_file_))
-project_root = os.path.dirname(current_dir) 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
 if project_root not in sys.path:
     sys.path.append(project_root)
 
 try:
-    # Pastikan parse_log_file di models.py sudah dimodifikasi untuk menyertakan raw_log_line
+    # Pastikan parse_log_file di models.py sudah dimodifikasi untuk menyertakan _raw_log_line_
     from models import parse_log_file, get_autoencoder_anomalies, get_ocsvm_anomalies
 except ImportError as e:
     st.error(f"Gagal mengimpor modul 'models'. Pastikan 'models.py' ada di direktori root ({project_root}). Error: {e}")
@@ -63,8 +63,8 @@ def load_anomaly_models_and_artifacts():
 
     check_and_load(AUTOENCODER_MODEL_PATH, "autoencoder", load_model, "Model Autoencoder", "🤖", is_tf_model=True)
     check_and_load(OCSVM_MODEL_PATH, "ocsvm", joblib.load, "Model OC-SVM", "🧩")
-    check_and_load(SCALER_PATH, "scaler", joblib.load, "Scaler", "⚙")
-    check_and_load(LABEL_ENCODERS_PATH, "label_encoders", joblib.load, "Label Encoders", "🏷")
+    check_and_load(SCALER_PATH, "scaler", joblib.load, "Scaler", "⚙️")
+    check_and_load(LABEL_ENCODERS_PATH, "label_encoders", joblib.load, "Label Encoders", "🏷️")
     check_and_load(MODEL_COLUMNS_PATH, "model_columns", joblib.load, "Kolom Input Scaler", "📊")
     check_and_load(FEATURE_TYPES_PATH, "feature_types", joblib.load, "Tipe Fitur Asli", "📋")
 
@@ -76,7 +76,7 @@ def load_anomaly_models_and_artifacts():
             models_artifacts["messages"].append(("error", f"Gagal memuat Training MSE AE '{os.path.basename(TRAINING_MSE_AE_PATH)}': {e}", "🔥"))
             models_artifacts["training_mse_ae"] = None
     else:
-        models_artifacts["messages"].append(("warning", f"File training MSE Autoencoder tidak ditemukan: {os.path.basename(TRAINING_MSE_AE_PATH)}. Threshold AE akan dihitung dari data input jika file ini tidak ada.", "⚠"))
+        models_artifacts["messages"].append(("warning", f"File training MSE Autoencoder tidak ditemukan: {os.path.basename(TRAINING_MSE_AE_PATH)}. Threshold AE akan dihitung dari data input jika file ini tidak ada.", "⚠️"))
         models_artifacts["training_mse_ae"] = None
     return models_artifacts
 
@@ -123,8 +123,6 @@ def preprocess_dashboard_data(df_raw_input, label_encoders_loaded, scaler_loaded
                 df_for_processing[col_num] = 0 
                 
             s_num = pd.to_numeric(df_for_processing[col_num], errors='coerce')
-            # Isi NaN dengan 0 (konsisten dengan training jika median tidak disimpan & dipakai di training)
-            # Jika median dari training disimpan, gunakan itu.
             df_num_processed_pred[col_num] = s_num.fillna(0) 
 
     # 3. Gabungkan Fitur sesuai urutan model_columns_for_scaler
@@ -144,7 +142,7 @@ def preprocess_dashboard_data(df_raw_input, label_encoders_loaded, scaler_loaded
 
     if df_combined_for_scaling.empty and model_columns_for_scaler :
          st.warning("DataFrame gabungan untuk scaling kosong.")
-         return pd.DataFrame(), df_raw_input # Kembalikan df mentah jika proses gagal
+         return pd.DataFrame(), df_raw_input
 
     # 4. Terapkan Scaler
     df_scaled = pd.DataFrame()
@@ -160,7 +158,7 @@ def preprocess_dashboard_data(df_raw_input, label_encoders_loaded, scaler_loaded
             st.error(f"Error saat scaling data: {e}")
             return pd.DataFrame(), df_raw_input
             
-    return df_scaled, df_raw_input # Mengembalikan df_raw_input asli untuk digunakan sebagai basis display
+    return df_scaled, df_raw_input
 
 # --- Fungsi untuk Konversi DataFrame ke Excel ---
 @st.cache_data 
@@ -184,9 +182,9 @@ def run_dashboard_page():
         st.session_state.models_artifacts_loaded = load_anomaly_models_and_artifacts()
     models_artifacts = st.session_state.models_artifacts_loaded
     
-    with st.expander("ℹ Status Pemuatan Model & Artefak", expanded=not models_artifacts.get("loaded_successfully", True)):
+    with st.expander("ℹ️ Status Pemuatan Model & Artefak", expanded=not models_artifacts.get("loaded_successfully", True)):
         messages_list = models_artifacts.get("messages", [])
-        if messages_list: # Pastikan messages_list tidak None
+        if messages_list:
             for type_msg, msg, icon in messages_list:
                 if type_msg == "success": st.success(msg, icon=icon)
                 elif type_msg == "error": st.error(msg, icon=icon)
@@ -222,7 +220,7 @@ def run_dashboard_page():
         st.session_state.detection_output = None
 
     if uploaded_file is not None:
-        st.markdown(f"File: {uploaded_file.name} ({uploaded_file.size / 1024:.2f} KB)")
+        st.markdown(f"File: `{uploaded_file.name}` (`{uploaded_file.size / 1024:.2f} KB`)")
         temp_input_filepath = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4().hex[:8]}_{uploaded_file.name}")
         with open(temp_input_filepath, "wb") as f: f.write(uploaded_file.getbuffer())
 
@@ -237,25 +235,25 @@ def run_dashboard_page():
         if st.button("Proses Log 🔎", type="primary", use_container_width=True, disabled=critical_artifacts_missing):
             st.session_state.detection_output = None 
             if not run_autoencoder and not run_ocsvm:
-                st.warning("Pilih setidaknya satu model.", icon="⚠")
+                st.warning("Pilih setidaknya satu model.", icon="⚠️")
             else:
                 with st.spinner("Memproses log... ⏳"):
                     output_data = {
                         "uploaded_file_name": uploaded_file.name, "run_ae": run_autoencoder, "run_ocsvm": run_ocsvm,
-                        "df_full_parsed_with_raw_log": None, # Akan berisi semua kolom parsed + raw_log_line
+                        "df_full_parsed_with_raw_log": None,
                         "df_scaled_for_model": None,
                         "ae_anomalies_series": None, "ae_mse_series": None,
                         "ocsvm_anomalies_series": None, "ocsvm_scores_series": None
                     }
                     try:
-                        df_parsed_with_raw_log = parse_log_file(temp_input_filepath).reset_index(drop=True) #
+                        df_parsed_with_raw_log = parse_log_file(temp_input_filepath).reset_index(drop=True)
                         
                         if df_parsed_with_raw_log.empty:
                             st.error("Log kosong atau gagal diparsing.", icon="❌")
                         else:
                             output_data["df_full_parsed_with_raw_log"] = df_parsed_with_raw_log.copy()
                             
-                            df_for_model_input = df_parsed_with_raw_log.drop(columns=['raw_log_line'], errors='ignore')
+                            df_for_model_input = df_parsed_with_raw_log.drop(columns=['_raw_log_line_'], errors='ignore')
                             
                             df_scaled, _ = preprocess_dashboard_data(
                                 df_for_model_input, 
@@ -269,13 +267,13 @@ def run_dashboard_page():
                                 st.error("Pra-pemrosesan gagal.", icon="❌")
                             else:
                                 output_data["df_scaled_for_model"] = df_scaled
-                            if run_autoencoder and models_artifacts.get("autoencoder"):
-                                ae_anomalies_s, ae_mse_s = get_autoencoder_anomalies(
-                                    models_artifacts["autoencoder"], df_scaled, 
-                                    training_mse=models_artifacts.get("training_mse_ae")
-                                )
-                                output_data["ae_anomalies_series"] = ae_anomalies_s
-                                output_data["ae_mse_series"] = ae_mse_s
+                                if run_autoencoder and models_artifacts.get("autoencoder"):
+                                    ae_anomalies_s, ae_mse_s = get_autoencoder_anomalies(
+                                        models_artifacts["autoencoder"], df_scaled, 
+                                        training_mse=models_artifacts.get("training_mse_ae")
+                                    )
+                                    output_data["ae_anomalies_series"] = ae_anomalies_s
+                                    output_data["ae_mse_series"] = ae_mse_s
                                 if run_ocsvm and models_artifacts.get("ocsvm"):
                                     ocsvm_anomalies_s, ocsvm_scores_s = get_ocsvm_anomalies(models_artifacts["ocsvm"], df_scaled)
                                     output_data["ocsvm_anomalies_series"] = ocsvm_anomalies_s
@@ -331,7 +329,7 @@ def run_dashboard_page():
             with st.container(border=True):
                 st.subheader("Autoencoder: Hasil Deteksi & Evaluasi")
                 if ae_mse_series_current is not None and not ae_mse_series_current.empty:
-                    st.write("*Reconstruction Error (MSE) untuk Data Unggahan:*")
+                    st.write("**Reconstruction Error (MSE) untuk Data Unggahan:**")
                     fig_ae, ax_ae = plt.subplots(); sns.histplot(ae_mse_series_current, kde=True, ax=ax_ae, bins=50)
                     ax_ae.set_title("Distribusi Reconstruction Error (MSE) - Autoencoder"); ax_ae.set_xlabel("MSE"); ax_ae.set_ylabel("Frekuensi")
                     training_mse_values = models_artifacts.get("training_mse_ae")
@@ -341,19 +339,16 @@ def run_dashboard_page():
                     elif not ae_mse_series_current.empty:
                         threshold_val_ae = np.percentile(ae_mse_series_current, 95); threshold_source = "Data Unggahan (Fallback)"
                     if threshold_source != "Default (Tidak ada data MSE)" : ax_ae.axvline(threshold_val_ae, color='r', linestyle='--', label=f'Threshold ({threshold_val_ae:.4f}) dari {threshold_source}')
-                    ax_ae.legend(); st.pyplot(fig_ae); plt.close(fig_ae) # Penting untuk menutup figure
-                    st.markdown("""*Penjelasan Reconstruction Error:* Error ini mengukur seberapa baik Autoencoder dapat merekonstruksi data input. Nilai error yang tinggi (di atas threshold) menunjukkan bahwa data tersebut berbeda dari pola normal yang dipelajari model dan kemungkinan adalah anomali.""")
+                    ax_ae.legend(); st.pyplot(fig_ae); plt.close(fig_ae)
+                    st.markdown("""**Penjelasan Reconstruction Error:** Error ini mengukur seberapa baik Autoencoder dapat merekonstruksi data input. Nilai error yang tinggi (di atas threshold) menunjukkan bahwa data tersebut berbeda dari pola normal yang dipelajari model dan kemungkinan adalah anomali.""")
                 else: st.info("Data MSE untuk Autoencoder tidak tersedia.")
                 
                 if not ae_anomalies_indices.empty:
-                    st.write(f"*Tabel Log Anomali - Autoencoder:* ({len(ae_anomalies_indices)} log)")
+                    st.write(f"**Tabel Log Anomali - Autoencoder:** ({len(ae_anomalies_indices)} log)")
                     anomalous_ae_df_display = df_full_parsed_for_display.loc[ae_anomalies_indices].copy()
                     anomalous_ae_df_display['AE_MSE_Score'] = ae_mse_series_current.loc[ae_anomalies_indices].values
-                    # Tampilkan semua kolom parsed + raw_log_line + skor
-                    st.dataframe(anomalous_ae_df_display, height=300) 
+                    st.dataframe(anomalous_ae_df_display, height=300)
                     
-                    # Excel untuk diunduh: semua kolom parsed dari df_full_parsed_for_display (termasuk raw_log_line)
-                    # TANPA skor MSE
                     df_ae_anomalies_for_excel = df_full_parsed_for_display.loc[ae_anomalies_indices]
                     excel_data_ae = convert_df_to_excel(df_ae_anomalies_for_excel) 
                     st.download_button(
@@ -371,15 +366,15 @@ def run_dashboard_page():
             with st.container(border=True):
                 st.subheader("One-Class SVM: Hasil Deteksi & Evaluasi")
                 if ocsvm_scores_series_current is not None and not ocsvm_scores_series_current.empty:
-                    st.write("*Distribusi Decision Score untuk Data Unggahan:*")
+                    st.write("**Distribusi Decision Score untuk Data Unggahan:**")
                     fig_ocsvm, ax_ocsvm = plt.subplots(); sns.histplot(ocsvm_scores_series_current, kde=True, ax=ax_ocsvm, bins=50, color="green")
                     ax_ocsvm.set_title("Distribusi Decision Score (OC-SVM)"); ax_ocsvm.set_xlabel("Decision Score"); ax_ocsvm.set_ylabel("Frekuensi")
-                    ax_ocsvm.axvline(0, color='r', linestyle='--', label='Threshold (< 0 Anomali)'); ax_ocsvm.legend(); st.pyplot(fig_ocsvm); plt.close(fig_ocsvm) # Penting untuk menutup figure
-                    st.markdown("""*Penjelasan Decision Score (OC-SVM):* Skor ini menunjukkan jarak data dari batas keputusan. Skor negatif adalah anomali.""")
+                    ax_ocsvm.axvline(0, color='r', linestyle='--', label='Threshold (< 0 Anomali)'); ax_ocsvm.legend(); st.pyplot(fig_ocsvm); plt.close(fig_ocsvm)
+                    st.markdown("""**Penjelasan Decision Score (OC-SVM):** Skor ini menunjukkan jarak data dari batas keputusan. Skor negatif adalah anomali.""")
                 else: st.info("Data Decision Score untuk OC-SVM tidak tersedia.")
 
                 if not ocsvm_anomalies_indices.empty:
-                    st.write(f"*Tabel Log Anomali - OC-SVM:* ({len(ocsvm_anomalies_indices)} log)")
+                    st.write(f"**Tabel Log Anomali - OC-SVM:** ({len(ocsvm_anomalies_indices)} log)")
                     anomalous_ocsvm_df_display = df_full_parsed_for_display.loc[ocsvm_anomalies_indices].copy()
                     anomalous_ocsvm_df_display['OCSVM_Decision_Score'] = ocsvm_scores_series_current.loc[ocsvm_anomalies_indices].values
                     st.dataframe(anomalous_ocsvm_df_display, height=300)
@@ -395,12 +390,12 @@ def run_dashboard_page():
                 else:
                     st.info("Tidak ada anomali oleh OC-SVM.")
             st.markdown("---")
-        
+
     elif uploaded_file is None and not critical_artifacts_missing:
         st.info("Silakan unggah file log untuk memulai analisis.", icon="📤")
 
 # Panggil fungsi utama
-if _name_ == "_main_":
+if __name__ == "__main__":
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = True
         st.session_state.username = "Penguji Dashboard"
