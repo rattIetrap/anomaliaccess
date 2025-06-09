@@ -270,17 +270,10 @@ def run_dashboard_page():
                             else:
                                 output_data["df_scaled_for_model"] = df_scaled
                             if run_autoencoder and models_artifacts.get("autoencoder"):
-                                # Tentukan threshold persentil yang baru dan lebih tinggi di sini
-                                ae_threshold_percentile = 98 # <-- COBA NAIKKAN NILAI INI. Mulai dengan 98, lalu coba 99 jika perlu.
-
-                                st.info(f"Info: Deteksi Autoencoder akan menggunakan threshold persentil ke-{ae_threshold_percentile}.")
-
                                 ae_anomalies_s, ae_mse_s = get_autoencoder_anomalies(
-                                    models_artifacts["autoencoder"], 
-                                    df_scaled, 
-                                    training_mse=models_artifacts.get("training_mse_ae"),
-                                    threshold_percentile=ae_threshold_percentile # <-- Menggunakan nilai baru
-                                ) #
+                                    models_artifacts["autoencoder"], df_scaled, 
+                                    training_mse=models_artifacts.get("training_mse_ae")
+                                )
                                 output_data["ae_anomalies_series"] = ae_anomalies_s
                                 output_data["ae_mse_series"] = ae_mse_s
                                 if run_ocsvm and models_artifacts.get("ocsvm"):
