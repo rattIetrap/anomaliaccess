@@ -176,7 +176,7 @@ def run_dashboard_page():
         st.page_link("streamlit_app.py", label="Kembali ke Halaman Login", icon="🏠")
         st.stop()
 
-    st.title("🚀 Dashboard Perbandingan Model Deteksi Anomali Akses Jaringan")
+    st.title("🚀 Dashboard Deteksi Anomali Akses Jaringan")
     
     if 'models_artifacts_loaded' not in st.session_state:
         st.session_state.models_artifacts_loaded = load_anomaly_models_and_artifacts()
