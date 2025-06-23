@@ -105,7 +105,7 @@ def create_autoencoder(input_dim, encoding_dim_ratio=0.5, intermediate_dim_ratio
 #     return None, None
 
 
-def get_autoencoder_anomalies(autoencoder_model, data_scaled, threshold_percentile=95, training_mse=None):
+def get_autoencoder_anomalies(autoencoder_model, data_scaled, threshold_percentile=99.5, training_mse=None):
     """
     Mendeteksi anomali menggunakan Autoencoder.
     Jika training_mse disediakan, threshold dihitung dari situ. Jika tidak, dari data_scaled.
