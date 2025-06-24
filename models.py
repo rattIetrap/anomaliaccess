@@ -76,7 +76,7 @@ def create_autoencoder(input_dim, encoding_dim_ratio=0.5, intermediate_dim_ratio
     input_layer = Input(shape=(input_dim,)); encoder = Dense(intermediate_nodes, activation="relu")(input_layer); encoder = Dropout(dropout_rate)(encoder); encoder = Dense(encoding_nodes, activation="relu")(encoder); decoder = Dense(intermediate_nodes, activation="relu")(encoder); decoder = Dropout(dropout_rate)(decoder); decoder_output = Dense(input_dim, activation="sigmoid")(decoder)
     autoencoder = Model(inputs=input_layer, outputs=decoder_output); autoencoder.compile(optimizer='adam', loss='mse'); return autoencoder
 
-def get_autoencoder_anomalies(autoencoder_model, data_scaled, threshold_percentile=90, training_mse=None):
+def get_autoencoder_anomalies(autoencoder_model, data_scaled, threshold_percentile=99.5, training_mse=None):
     # ... (Isi fungsi ini tetap sama) ...
     if data_scaled.empty: return pd.Series(dtype='bool'), pd.Series(dtype='float')
     predictions = autoencoder_model.predict(data_scaled, verbose=0); data_scaled_np = data_scaled.to_numpy() if isinstance(data_scaled, pd.DataFrame) else data_scaled
