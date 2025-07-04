@@ -169,38 +169,6 @@ def convert_df_to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-# --- Fungsi untuk Menyimpan Hasil Harian ---
-def save_daily_summary(detection_date_str, total_logs, ae_anomaly_count, ocsvm_anomaly_count, username):
-    """Menyimpan atau memperbarui ringkasan deteksi harian ke file CSV bulanan."""
-    try:
-        detection_date = pd.to_datetime(detection_date_str).date()
-        
-        # Nama file dinamis berdasarkan bulan
-        history_filename = f"history_{detection_date.strftime('%Y-%m')}.csv"
-        history_file_path = os.path.join(DATA_FOLDER, history_filename)
-        
-        new_entry = pd.DataFrame([{
-            'date': detection_date,
-            'total_logs': total_logs,
-            'anomaly_count_ae': ae_anomaly_count,
-            'anomaly_count_ocsvm': ocsvm_anomaly_count,
-            'detected_by': username
-        }])
-        
-        if os.path.exists(history_file_path):
-            history_df = pd.read_csv(history_file_path, parse_dates=['date'])
-            history_df['date'] = history_df['date'].dt.date
-            history_df = history_df[history_df['date'] != detection_date] # Hapus entri lama untuk tanggal yang sama
-            updated_history_df = pd.concat([history_df, new_entry], ignore_index=True)
-        else:
-            updated_history_df = new_entry
-            
-        updated_history_df.sort_values(by='date', inplace=True)
-        updated_history_df.to_csv(history_file_path, index=False)
-        st.success(f"Hasil deteksi untuk tanggal {detection_date.strftime('%Y-%m-%d')} berhasil disimpan ke {history_filename}.")
-    except Exception as e:
-        st.warning(f"Gagal menyimpan hasil ke histori: {e}")
-
 # --- Halaman Dashboard ---
 def run_dashboard_page():
     if not st.session_state.get("logged_in", False):
@@ -327,38 +295,32 @@ def run_dashboard_page():
         st.header("3. Hasil Deteksi & Metrik Evaluasi")
 
         output = st.session_state.detection_output
-        df_for_display = output.get("df_full_parsed") 
+        df_full_parsed_for_display = output.get("df_full_parsed_with_raw_log") 
+        uploaded_file_name = output.get("uploaded_file_name", "log_diunggah")
         
-        if df_for_display is None or df_for_display.empty:
-            st.info("Tidak ada data untuk ditampilkan."); return
+        if df_full_parsed_for_display is None or df_full_parsed_for_display.empty:
+            st.info("Tidak ada data untuk ditampilkan.")
+            return
 
-        # ... (Kode untuk menampilkan ringkasan, evaluasi AE, evaluasi OCSVM, dan tabel anomali tetap sama) ...
-        # (pastikan merujuk ke 'output' dictionary)
-        total_records = len(df_for_display)
+        total_records = len(df_full_parsed_for_display)
+        
         st.subheader("📈 Ringkasan Deteksi")
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1, col_m2, col_m3 = st.columns(3)
         col_m1.metric("Total Records Diproses", total_records)
-        
-        ae_anomalies_series = output.get("ae_anomalies_series"); ae_count = 0
-        if ae_anomalies_series is not None: ae_count = ae_anomalies_series.sum()
-        
-        ocsvm_anomalies_series = output.get("ocsvm_anomalies_series"); ocsvm_count = 0
-        if ocsvm_anomalies_series is not None: ocsvm_count = ocsvm_anomalies_series.sum()
 
-        col_m2.metric("Anomali (AE)", ae_count if output.get("run_ae") else "N/A")
-        col_m3.metric("Anomali (OC-SVM)", ocsvm_count if output.get("run_ocsvm") else "N/A")
+        ae_anomalies_series = output.get("ae_anomalies_series", pd.Series(dtype='bool'))
+        ae_mse_series_current = output.get("ae_mse_series", pd.Series(dtype='float'))
+        ocsvm_anomalies_series = output.get("ocsvm_anomalies_series", pd.Series(dtype='bool'))
+        ocsvm_scores_series_current = output.get("ocsvm_scores_series", pd.Series(dtype='float'))
+
+        ae_anomalies_indices = pd.Index([])
+        if not ae_anomalies_series.empty: ae_anomalies_indices = ae_anomalies_series[ae_anomalies_series == True].index
         
-        # --- Tombol Simpan ke Histori ---
-        with col_m4:
-            st.write("") # Untuk alignment vertikal
-            st.write("")
-            if st.button("Simpan ke Histori 📜", key="save_history_btn"):
-                detection_date_str = df_for_display['date'].iloc[0] if 'date' in df_for_display.columns and not df_for_display.empty else None
-                if detection_date_str:
-                    current_user = st.session_state.get("username", "unknown_user")
-                    save_daily_summary(detection_date_str, total_records, ae_count, ocsvm_count, current_user)
-                else:
-                    st.warning("Tidak dapat menentukan tanggal dari log untuk menyimpan ke histori.")
+        ocsvm_anomalies_indices = pd.Index([])
+        if not ocsvm_anomalies_series.empty: ocsvm_anomalies_indices = ocsvm_anomalies_series[ocsvm_anomalies_series == True].index
+
+        col_m2.metric("Anomali (AE)", len(ae_anomalies_indices) if output.get("run_ae", False) and "ae_anomalies_series" in output else ("N/A" if output.get("run_ae", False) else "Tidak Dijalankan"))
+        col_m3.metric("Anomali (OC-SVM)", len(ocsvm_anomalies_indices) if output.get("run_ocsvm", False) and "ocsvm_anomalies_series" in output else ("N/A" if output.get("run_ocsvm", False) else "Tidak Dijalankan"))
         
         st.markdown("---")
 
