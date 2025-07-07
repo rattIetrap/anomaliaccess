@@ -27,6 +27,14 @@ def get_history_files(data_folder):
         return []
     files = [f for f in os.listdir(data_folder) if f.startswith('history_') and f.endswith('.csv')]
     return sorted(files, reverse=True) # Urutkan dari yang terbaru (misal: 2024-11, 2024-10)
+# --- FUNGSI BARU UNTUK KONVERSI KE EXCEL ---
+@st.cache_data 
+def convert_df_to_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Monthly_History')
+    processed_data = output.getvalue()
+    return processed_data
 
 def display_monthly_dashboard():
     st.title("📅 Dashboard Tren Deteksi Anomali")
