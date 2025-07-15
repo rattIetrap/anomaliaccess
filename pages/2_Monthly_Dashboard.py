@@ -5,34 +5,42 @@ import os
 import io
 import matplotlib.pyplot as plt
 import seaborn as sns
-from streamlit_gsheets import GSheetsConnection
+import gspread
+from google.oauth2.service_account import Credentials
+from gspread_dataframe import get_as_dataframe
 
 # --- Fungsi untuk Memuat Data Histori dari Google Sheets ---
-@st.cache_data(ttl=300) # Cache data selama 5 menit (300 detik)
+@st.cache_data(ttl=300) # Cache data selama 5 menit
 def load_history_from_gsheet():
-    """Memuat data histori deteksi dari Google Sheets menggunakan st.secrets."""
+    """Memuat data histori deteksi dari Google Sheets menggunakan gspread."""
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        # Ambil nama worksheet dari secrets, dengan fallback jika tidak ada
-        worksheet_name = st.secrets.get("connections", {}).get("gsheets", {}).get("worksheet", "History")
+        # Autentikasi
+        scopes = ['https://www.googleapis.com/auth/spreadsheets']
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+        gc = gspread.authorize(creds)
         
-        df = conn.read(worksheet=worksheet_name, usecols=list(range(5))) # Baca 5 kolom pertama
+        # Buka Spreadsheet dan Worksheet
+        spreadsheet = gc.open("DeteksiAnomaliHistory") # Ganti dengan nama spreadsheet Anda
+        worksheet = spreadsheet.worksheet("History") # Ganti dengan nama worksheet Anda
         
-        # Hapus baris yang semua kolomnya kosong (sering terjadi di gsheets)
-        df.dropna(how='all', inplace=True)
+        # Baca data ke DataFrame
+        df = get_as_dataframe(worksheet, usecols=[0, 1, 2, 3, 4], evaluate_formulas=True) # Baca 5 kolom
+        df.dropna(how='all', inplace=True) # Hapus baris kosong
         
         if df.empty:
             return pd.DataFrame()
-
-        # Konversi dan pastikan tipe data benar
+        
+        # Konversi tipe data
         df['date'] = pd.to_datetime(df['date'])
         for col in ['total_logs', 'anomaly_count_ae', 'anomaly_count_ocsvm']:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-        
+            
         return df
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error(f"Spreadsheet 'DeteksiAnomaliHistory' tidak ditemukan. Pastikan nama sudah benar dan telah dibagikan.")
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Error saat memuat data histori dari Google Sheets: {e}")
-        st.info("Pastikan konfigurasi `secrets.toml` Anda benar dan Google Sheet telah dibagikan dengan email service account.")
+        st.error(f"Error saat memuat data dari Google Sheets: {e}")
         return pd.DataFrame()
 
 # --- Fungsi untuk Konversi DataFrame ke Excel ---
@@ -48,11 +56,10 @@ def convert_df_to_excel(df):
 # --- Halaman Dashboard Utama ---
 def display_monthly_dashboard():
     st.title("📅 Dashboard Tren Deteksi Anomali")
-    st.markdown("Visualisasi ini menampilkan tren deteksi anomali berdasarkan histori yang tersimpan di Google Sheets.")
+    st.markdown("Visualisasi ini menampilkan tren deteksi anomali dari histori yang tersimpan di Google Sheets.")
 
-    # Tombol untuk refresh data histori secara manual
     if st.button("🔄 Muat Ulang Data Histori"):
-        st.cache_data.clear() # Membersihkan cache agar data terbaru diambil
+        st.cache_data.clear()
         st.rerun()
 
     df_history = load_history_from_gsheet()
@@ -64,7 +71,6 @@ def display_monthly_dashboard():
             icon="⚠️"
         )
         return
-
     # Urutkan data berdasarkan tanggal untuk memastikan grafik benar
     df_history.sort_values(by='date', inplace=True)
     
