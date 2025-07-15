@@ -11,6 +11,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import seaborn as sns
 import io # Diperlukan untuk konversi ke Excel
+from streamlit_gsheets import GSheetsConnection
 
 # Impor fungsi dari models.py
 import sys
