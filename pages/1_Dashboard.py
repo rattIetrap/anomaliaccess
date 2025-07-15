@@ -304,7 +304,6 @@ def run_dashboard_page():
 
         output = st.session_state.detection_output
         df_full_parsed_for_display = output.get("df_full_parsed") 
-        uploaded_file_name = output.get("uploaded_file_name", "log_diunggah")
         
         if df_full_parsed_for_display is None or df_full_parsed_for_display.empty:
             st.info("Tidak ada data untuk ditampilkan.")
@@ -313,7 +312,7 @@ def run_dashboard_page():
         total_records = len(df_full_parsed_for_display)
         
         st.subheader("📈 Ringkasan Deteksi")
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1, col_m2, col_m3 = st.columns(3) # Ubah ke 3 kolom saja
         col_m1.metric("Total Records Diproses", total_records)
 
         ae_anomalies_series = output.get("ae_anomalies_series")
@@ -325,18 +324,35 @@ def run_dashboard_page():
         col_m2.metric("Anomali (AE)", ae_count if output.get("run_ae") else "N/A")
         col_m3.metric("Anomali (OC-SVM)", ocsvm_count if output.get("run_ocsvm") else "N/A")
         
-        # --- PERUBAHAN: Tombol Simpan ke Histori ---
-        with col_m4:
-            st.write("") 
-            st.write("") 
-            if st.button("Simpan ke Histori 📜", key="save_history_btn"):
-                detection_date_str = df_full_parsed_for_display['date'].iloc[0] if 'date' in df_full_parsed_for_display.columns and not df_full_parsed_for_display.empty else None
-                if detection_date_str:
-                    current_user = st.session_state.get("username", "unknown_user")
-                    save_summary_to_gsheet(detection_date_str, total_records, ae_count, ocsvm_count, current_user)
-                else:
-                    st.warning("Tidak dapat menentukan tanggal dari log untuk menyimpan ke histori.")
-        
+        st.markdown("---")
+
+        # --- PERUBAHAN: Tambahkan Kontainer untuk Unduh Ringkasan ---
+        with st.container(border=True):
+            st.subheader("Simpan Ringkasan Hasil Deteksi")
+            st.info("Unduh ringkasan hasil deteksi hari ini untuk digabungkan ke dalam histori bulanan secara manual.")
+
+            # Siapkan data untuk diunduh
+            detection_date_str = df_full_parsed_for_display['date'].iloc[0] if 'date' in df_full_parsed_for_display.columns and not df_full_parsed_for_display.empty else "unknown_date"
+            
+            summary_data = {
+                'date': [pd.to_datetime(detection_date_str).strftime('%Y-%m-%d')],
+                'total_logs': [total_records],
+                'anomaly_count_ae': [ae_count],
+                'anomaly_count_ocsvm': [ocsvm_count],
+                'detected_by': [st.session_state.get("username", "unknown_user")]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            
+            # Konversi DataFrame ringkasan ke CSV di dalam memori
+            summary_csv = summary_df.to_csv(index=False).encode('utf-8')
+            
+            st.download_button(
+               label="📥 Unduh Ringkasan Hari Ini (.csv)",
+               data=summary_csv,
+               file_name=f"summary_{pd.to_datetime(detection_date_str).strftime('%Y-%m-%d')}.csv",
+               mime='text/csv',
+            )
+
         st.markdown("---")
 
         # --- Evaluasi Model Autoencoder ---
