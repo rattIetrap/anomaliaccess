@@ -164,15 +164,17 @@ def convert_df_to_excel(df):
 def save_summary_to_gsheet(detection_date_str, total_logs, ae_anomaly_count, ocsvm_anomaly_count, username):
     """Menyimpan atau memperbarui ringkasan deteksi harian ke Google Sheets menggunakan gspread."""
     try:
-        # Autentikasi ke Google Sheets menggunakan st.secrets
-        scopes = ['https://www.googleapis.com/auth/spreadsheets']
+        # --- PERUBAHAN UTAMA: Definisikan Scopes ---
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive.file'
+        ]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
         gc = gspread.authorize(creds)
         
         # Buka Spreadsheet dan Worksheet
-        # Ganti dengan nama spreadsheet Anda
-        spreadsheet = gc.open("DeteksiAnomaliHistory") 
-        worksheet = spreadsheet.worksheet("History") # Ganti dengan nama worksheet Anda
+        spreadsheet = gc.open("DeteksiAnomaliHistory") # Pastikan nama ini benar
+        worksheet = spreadsheet.worksheet("History") # Pastikan nama sheet ini benar
         
         detection_date = pd.to_datetime(detection_date_str).date()
 
@@ -199,15 +201,16 @@ def save_summary_to_gsheet(detection_date_str, total_logs, ae_anomaly_count, ocs
         updated_df.sort_values(by='date', inplace=True)
         updated_df['date'] = updated_df['date'].dt.strftime('%Y-%m-%d')
         
-        # Tulis kembali seluruh DataFrame ke worksheet (clear & write)
+        # Tulis kembali seluruh DataFrame ke worksheet
         worksheet.clear()
         set_with_dataframe(worksheet, updated_df, include_index=False, resize=True)
         
         st.success(f"Hasil deteksi untuk tanggal {detection_date.strftime('%Y-%m-%d')} berhasil disimpan ke histori di Google Sheets.")
 
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error("Spreadsheet 'DeteksiAnomaliHistory' tidak ditemukan. Pastikan nama sudah benar dan telah dibagikan dengan email service account.")
     except Exception as e:
         st.error(f"Gagal menyimpan hasil ke histori: {e}")
-        st.info("Pastikan Anda sudah mengkonfigurasi `secrets.toml` dengan benar dan membagikan Google Sheet dengan email service account.")
 
 # --- Halaman Dashboard Utama ---
 def run_dashboard_page():
