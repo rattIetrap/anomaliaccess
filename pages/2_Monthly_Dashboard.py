@@ -3,50 +3,24 @@ import streamlit as st
 import pandas as pd
 import os
 import io
-import matplotlib.pyplot as plt
-import seaborn as sns
-import gspread
-from google.oauth2.service_account import Credentials
-from gspread_dataframe import get_as_dataframe
 
-# --- Fungsi untuk Memuat Data Histori dari Google Sheets ---
-@st.cache_data(ttl=300) # Cache data selama 5 menit
-def load_history_from_gsheet():
-    """Memuat data histori deteksi dari Google Sheets menggunakan gspread."""
+# --- Konfigurasi dan Fungsi ---
+# Path ke file histori master di dalam repositori
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MASTER_HISTORY_PATH = os.path.join(BASE_DIR, 'data', 'master_history.csv')
+
+@st.cache_data 
+def load_master_history(path):
+    """Memuat data histori master dari file CSV."""
+    if not os.path.exists(path):
+        return None
     try:
-        # --- PERUBAHAN UTAMA: Definisikan Scopes ---
-        scopes = [
-            'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive.file'
-        ]
-        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-        gc = gspread.authorize(creds)
-        
-        # Buka Spreadsheet dan Worksheet
-        spreadsheet = gc.open("DeteksiAnomaliHistory") # Ganti dengan nama spreadsheet Anda
-        worksheet = spreadsheet.worksheet("History") # Ganti dengan nama worksheet Anda
-        
-        # Baca data ke DataFrame
-        df = get_as_dataframe(worksheet, usecols=[0, 1, 2, 3, 4], evaluate_formulas=True)
-        df.dropna(how='all', inplace=True)
-        
-        if df.empty:
-            return pd.DataFrame()
-        
-        # Konversi tipe data
-        df['date'] = pd.to_datetime(df['date'])
-        for col in ['total_logs', 'anomaly_count_ae', 'anomaly_count_ocsvm']:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-            
+        df = pd.read_csv(path, parse_dates=['date'])
         return df
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error(f"Spreadsheet 'DeteksiAnomaliHistory' tidak ditemukan. Pastikan nama sudah benar dan telah dibagikan dengan email service account.")
-        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Error saat memuat data dari Google Sheets: {e}")
-        return pd.DataFrame()
+        st.error(f"Error saat memuat file histori master: {e}")
+        return None
 
-# --- Fungsi untuk Konversi DataFrame ke Excel ---
 @st.cache_data 
 def convert_df_to_excel(df):
     """Mengubah DataFrame menjadi file biner Excel."""
@@ -56,56 +30,45 @@ def convert_df_to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-# --- Halaman Dashboard Utama ---
 def display_monthly_dashboard():
     st.title("📅 Dashboard Tren Deteksi Anomali")
-    st.markdown("Visualisasi ini menampilkan tren deteksi anomali dari histori yang tersimpan di Google Sheets.")
+    st.markdown("Visualisasi ini menampilkan tren deteksi anomali dari histori yang telah dikumpulkan secara manual.")
 
-    if st.button("🔄 Muat Ulang Data Histori"):
-        st.cache_data.clear()
-        st.rerun()
-
-    df_history = load_history_from_gsheet()
+    df_history = load_master_history(MASTER_HISTORY_PATH)
     
     if df_history is None or df_history.empty:
         st.warning(
-            "Tidak ada data histori deteksi yang ditemukan di Google Sheet. "
-            "Silakan lakukan deteksi pada log harian terlebih dahulu melalui **'1_Dashboard Deteksi Harian'** dan klik **'Simpan ke Histori'**.", 
+            "File histori master (`data/master_history.csv`) tidak ditemukan atau kosong. "
+            "Pastikan file ini sudah dibuat dan diunggah ke repositori GitHub Anda.", 
             icon="⚠️"
         )
         return
+
     # Urutkan data berdasarkan tanggal untuk memastikan grafik benar
     df_history.sort_values(by='date', inplace=True)
-    
-    # Simpan DataFrame yang akan ditampilkan/diunduh sebelum set index
     df_display_and_download = df_history.copy()
-    
-    # Set tanggal sebagai index untuk kemudahan plotting
     df_history.set_index('date', inplace=True)
     
     st.markdown("---")
-
+    
     # --- Tampilkan Metrik Utama ---
-    st.subheader("Ringkasan Periode")
+    st.subheader("Ringkasan Periode Total")
     total_anomalies_ae = df_history['anomaly_count_ae'].sum()
     total_anomalies_ocsvm = df_history['anomaly_count_ocsvm'].sum()
     total_logs_in_period = df_history['total_logs'].sum()
-    day_with_highest_anomalies = df_history['anomaly_count_ae'].idxmax() if not df_history['anomaly_count_ae'].empty else None
+    day_with_highest_anomalies = df_history['anomaly_count_ae'].idxmax() if not df_history.empty else None
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Anomali Terdeteksi (AE)", f"{total_anomalies_ae:,}")
-    col2.metric("Total Anomali Terdeteksi (OC-SVM)", f"{total_anomalies_ocsvm:,}")
+    col1.metric("Total Anomali (AE)", f"{total_anomalies_ae:,}")
+    col2.metric("Total Anomali (OC-SVM)", f"{total_anomalies_ocsvm:,}")
     col3.metric("Total Log Diproses", f"{total_logs_in_period:,}")
     
     if pd.notna(day_with_highest_anomalies):
-        st.info(f"Hari dengan anomali terbanyak (menurut AE): **{day_with_highest_anomalies.strftime('%d %B %Y')}** "
+        st.info(f"Hari dengan anomali terbanyak (AE): **{day_with_highest_anomalies.strftime('%d %B %Y')}** "
                 f"({df_history.loc[day_with_highest_anomalies, 'anomaly_count_ae']} anomali).", icon="🔥")
 
     st.markdown("---")
-
-    # --- Tampilkan Grafik ---
     st.subheader("Grafik Tren Anomali Harian")
-    
     columns_to_plot = st.multiselect(
         "Pilih data untuk ditampilkan di grafik:",
         options=['Anomali (AE)', 'Anomali (OC-SVM)', 'Total Log'],
@@ -119,27 +82,20 @@ def display_monthly_dashboard():
         plot_data['Anomali (OC-SVM)'] = df_history['anomaly_count_ocsvm']
     if 'Total Log' in columns_to_plot:
         plot_data['Total Log'] = df_history['total_logs']
-
+        
     if not plot_data.empty:
         st.line_chart(plot_data)
-        st.caption("Gunakan *mouse* untuk *zoom* dan melihat detail pada grafik.")
-    else:
-        st.info("Pilih setidaknya satu data untuk ditampilkan pada grafik.")
         
     st.markdown("---")
-    
-    # --- Tampilkan Tabel Data ---
     st.subheader("Data Histori Deteksi Harian")
     st.dataframe(df_display_and_download)
     
-    # --- Tombol Unduh Excel ---
     excel_data = convert_df_to_excel(df_display_and_download)
     st.download_button(
         label="📥 Unduh Histori Ini (Excel)",
         data=excel_data,
-        file_name=f"history_summary_deteksi.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download_monthly_history_final"
+        file_name="master_detection_history.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 # Pastikan hanya dijalankan jika user sudah login
@@ -147,7 +103,4 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
     st.warning("Silakan login melalui halaman utama untuk mengakses dashboard ini.")
     st.stop()
 else:
-    # Inisialisasi untuk pengujian lokal jika diperlukan
-    if "username" not in st.session_state:
-        st.session_state.username = "Penguji Dashboard"
     display_monthly_dashboard()
