@@ -158,12 +158,18 @@ def convert_df_to_excel(df):
     return output.getvalue()
 
 # --- Fungsi untuk Menyimpan Hasil Harian ---
-def save_daily_summary(detection_date_str, total_logs, ae_anomaly_count, ocsvm_anomaly_count, username):
-    """Menyimpan atau memperbarui ringkasan deteksi harian ke file CSV bulanan."""
+def save_summary_to_gsheet(detection_date_str, total_logs, ae_anomaly_count, ocsvm_anomaly_count, username):
+    """Menyimpan atau memperbarui ringkasan deteksi harian ke Google Sheets."""
     try:
+        # Buat koneksi ke Google Sheets menggunakan st.secrets
+        conn = st.connection("gsheets", type=GSheetsConnection)
+
+        # Konversi string tanggal menjadi objek tanggal untuk konsistensi
         detection_date = pd.to_datetime(detection_date_str).date()
-        history_filename = f"history_{detection_date.strftime('%Y-%m')}.csv"
-        history_file_path = os.path.join(DATA_FOLDER, history_filename)
+
+        # Baca data yang sudah ada untuk diperbarui
+        existing_data = conn.read(worksheet="History", usecols=list(range(5)), ttl=5) # ttl=5 untuk refresh
+        existing_data['date'] = pd.to_datetime(existing_data['date']).dt.date
         
         new_entry = pd.DataFrame([{
             'date': detection_date,
@@ -172,20 +178,28 @@ def save_daily_summary(detection_date_str, total_logs, ae_anomaly_count, ocsvm_a
             'anomaly_count_ocsvm': ocsvm_anomaly_count,
             'detected_by': username
         }])
+
+        # Hapus entri lama untuk tanggal yang sama jika ada
+        if not existing_data[existing_data['date'] == detection_date].empty:
+            existing_data = existing_data[existing_data['date'] != detection_date]
         
-        if os.path.exists(history_file_path):
-            history_df = pd.read_csv(history_file_path, parse_dates=['date'])
-            history_df['date'] = history_df['date'].dt.date
-            history_df = history_df[history_df['date'] != detection_date]
-            updated_history_df = pd.concat([history_df, new_entry], ignore_index=True)
-        else:
-            updated_history_df = new_entry
-            
-        updated_history_df.sort_values(by='date', inplace=True)
-        updated_history_df.to_csv(history_file_path, index=False)
-        st.success(f"Hasil deteksi untuk tanggal {detection_date.strftime('%Y-%m-%d')} berhasil disimpan ke {history_filename}.")
+        # Gabungkan data lama dan entri baru
+        updated_df = pd.concat([existing_data, new_entry], ignore_index=True)
+        
+        # Urutkan berdasarkan tanggal
+        updated_df['date'] = pd.to_datetime(updated_df['date']) # ubah kembali ke datetime untuk sorting
+        updated_df.sort_values(by='date', inplace=True)
+        # ubah format tanggal menjadi string YYYY-MM-DD agar konsisten saat ditulis
+        updated_df['date'] = updated_df['date'].dt.strftime('%Y-%m-%d')
+        
+        # Perbarui seluruh worksheet dengan data yang sudah diupdate
+        conn.update(worksheet="History", data=updated_df)
+        
+        st.success(f"Hasil deteksi untuk tanggal {detection_date.strftime('%Y-%m-%d')} berhasil disimpan ke histori di Google Sheets.")
+
     except Exception as e:
         st.warning(f"Gagal menyimpan hasil ke histori: {e}")
+        st.info("Pastikan Anda sudah mengkonfigurasi `secrets.toml` dengan benar dan membagikan Google Sheet dengan email service account.")
 
 # --- Halaman Dashboard Utama ---
 def run_dashboard_page():
@@ -305,10 +319,10 @@ def run_dashboard_page():
             st.write("") 
             st.write("") 
             if st.button("Simpan ke Histori 📜", key="save_history_btn"):
-                detection_date_str = df_full_parsed_for_display['date'].iloc[0] if 'date' in df_full_parsed_for_display.columns and not df_full_parsed_for_display.empty else None
+                detection_date_str = df_for_display_and_download['date'].iloc[0] if 'date' in df_for_display_and_download.columns and not df_for_display_and_download.empty else None
                 if detection_date_str:
                     current_user = st.session_state.get("username", "unknown_user")
-                    save_daily_summary(detection_date_str, total_records, ae_count, ocsvm_count, current_user)
+                    save_summary_to_gsheet(detection_date_str, total_records, ae_count, ocsvm_count, current_user)
                 else:
                     st.warning("Tidak dapat menentukan tanggal dari log untuk menyimpan ke histori.")
         
