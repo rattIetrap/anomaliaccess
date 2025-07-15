@@ -7,4 +7,6 @@ joblib==1.5.1      # Atau versi joblib yang Anda gunakan
 matplotlib
 seaborn
 openpyxl
-streamlit-gsheets
+gspread
+google-auth-oauthlib
+gspread-dataframe
