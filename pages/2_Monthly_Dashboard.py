@@ -14,8 +14,11 @@ from gspread_dataframe import get_as_dataframe
 def load_history_from_gsheet():
     """Memuat data histori deteksi dari Google Sheets menggunakan gspread."""
     try:
-        # Autentikasi
-        scopes = ['https://www.googleapis.com/auth/spreadsheets']
+        # --- PERUBAHAN UTAMA: Definisikan Scopes ---
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive.file'
+        ]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
         gc = gspread.authorize(creds)
         
@@ -24,8 +27,8 @@ def load_history_from_gsheet():
         worksheet = spreadsheet.worksheet("History") # Ganti dengan nama worksheet Anda
         
         # Baca data ke DataFrame
-        df = get_as_dataframe(worksheet, usecols=[0, 1, 2, 3, 4], evaluate_formulas=True) # Baca 5 kolom
-        df.dropna(how='all', inplace=True) # Hapus baris kosong
+        df = get_as_dataframe(worksheet, usecols=[0, 1, 2, 3, 4], evaluate_formulas=True)
+        df.dropna(how='all', inplace=True)
         
         if df.empty:
             return pd.DataFrame()
@@ -37,7 +40,7 @@ def load_history_from_gsheet():
             
         return df
     except gspread.exceptions.SpreadsheetNotFound:
-        st.error(f"Spreadsheet 'DeteksiAnomaliHistory' tidak ditemukan. Pastikan nama sudah benar dan telah dibagikan.")
+        st.error(f"Spreadsheet 'DeteksiAnomaliHistory' tidak ditemukan. Pastikan nama sudah benar dan telah dibagikan dengan email service account.")
         return pd.DataFrame()
     except Exception as e:
         st.error(f"Error saat memuat data dari Google Sheets: {e}")
