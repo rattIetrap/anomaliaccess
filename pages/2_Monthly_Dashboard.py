@@ -3,50 +3,76 @@ import streamlit as st
 import pandas as pd
 import os
 import io
-import glob # Pustaka baru untuk mencari file
+import glob
+import calendar
 
 # --- Konfigurasi dan Fungsi ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_FOLDER = os.path.join(BASE_DIR, 'data')
 
 @st.cache_data(ttl=300) # Cache data selama 5 menit
-def load_all_history_files(data_folder_path):
-    """Mencari, membaca, dan menggabungkan semua file ringkasan harian."""
+def get_available_periods(data_folder_path):
+    """
+    Mencari semua file ringkasan dan mengekstrak tahun serta bulan yang tersedia.
+    """
     if not os.path.exists(data_folder_path):
-        st.error(f"Folder 'data' tidak ditemukan di path: {data_folder_path}")
+        return {}
+    
+    # Pola untuk mencari file summary harian
+    summary_files = glob.glob(os.path.join(data_folder_path, "summary_*.csv"))
+    
+    periods = {}
+    for f in summary_files:
+        try:
+            # Ekstrak tanggal dari nama file, misal: 'summary_2024-10-15.csv'
+            date_str = os.path.basename(f).replace('summary_', '').replace('.csv', '')
+            # Ambil hanya tahun dan bulan
+            year, month = int(date_str.split('-')[0]), int(date_str.split('-')[1])
+            
+            if year not in periods:
+                periods[year] = []
+            if month not in periods[year]:
+                periods[year].append(month)
+        except (ValueError, IndexError):
+            continue # Abaikan file dengan format nama yang salah
+            
+    # Urutkan bulan untuk setiap tahun (dari terbaru ke terlama)
+    for year in periods:
+        periods[year].sort(reverse=True)
+        
+    return periods
+
+@st.cache_data(ttl=300)
+def load_and_combine_history(data_folder_path, year, month):
+    """
+    Memuat dan menggabungkan semua file ringkasan harian untuk tahun dan bulan tertentu.
+    """
+    month_str = f"{month:02d}" # Format bulan menjadi dua digit (misal: 9 -> '09')
+    file_pattern = os.path.join(data_folder_path, f"summary_{year}-{month_str}-*.csv")
+    
+    all_files_for_period = glob.glob(file_pattern)
+    
+    if not all_files_for_period:
         return pd.DataFrame()
 
-    # Cari semua file .csv di dalam folder yang namanya diawali dengan 'summary_'
-    all_summary_files = glob.glob(os.path.join(data_folder_path, "summary_*.csv"))
-    
-    if not all_summary_files:
-        return None # Kembalikan None jika tidak ada file sama sekali
-
     df_list = []
-    for f in all_summary_files:
+    for f in all_files_for_period:
         try:
             df = pd.read_csv(f, parse_dates=['date'])
             df_list.append(df)
         except Exception as e:
             st.warning(f"Gagal memuat file {os.path.basename(f)}: {e}")
-            continue # Lanjutkan ke file berikutnya jika ada error
-            
+            continue
+    
     if not df_list:
         return pd.DataFrame()
 
-    # Gabungkan semua DataFrame menjadi satu
     combined_df = pd.concat(df_list, ignore_index=True)
-    
-    # Penanganan duplikat: jika ada beberapa entri untuk tanggal yang sama,
-    # ambil yang terakhir saja berdasarkan asumsi itu yang terbaru.
     combined_df.drop_duplicates(subset=['date'], keep='last', inplace=True)
-    
-    # Urutkan berdasarkan tanggal
     combined_df.sort_values(by='date', inplace=True)
     
     return combined_df
 
-# ... (Fungsi convert_df_to_excel tetap sama) ...
 @st.cache_data 
 def convert_df_to_excel(df):
     output = io.BytesIO()
@@ -54,43 +80,62 @@ def convert_df_to_excel(df):
         df.to_excel(writer, index=False, sheet_name='Detection_History')
     return output.getvalue()
 
-
 def display_monthly_dashboard():
     st.title("📅 Dashboard Tren Deteksi Anomali")
-    st.markdown("Visualisasi ini menampilkan tren deteksi anomali berdasarkan semua *file* ringkasan harian yang tersimpan.")
+    st.markdown("Visualisasi ini menampilkan tren deteksi anomali berdasarkan semua file ringkasan harian yang tersimpan.")
 
-    if st.button("🔄 Muat Ulang Data Histori"):
-        st.cache_data.clear()
-        st.rerun()
+    available_periods = get_available_periods(DATA_FOLDER)
 
-    df_history = load_all_history_files(DATA_FOLDER)
-    
-    if df_history is None or df_history.empty:
+    if not available_periods:
         st.warning(
             "Tidak ada file ringkasan (`summary_*.csv`) yang ditemukan di folder 'data'. "
-            "Silakan unggah file ringkasan harian ke folder 'data' di repositori GitHub Anda.", 
+            "Silakan unduh ringkasan dari 'Dashboard Deteksi Harian' dan unggah ke folder 'data' di repositori GitHub.", 
             icon="⚠️"
         )
         return
 
-    # Sisa kode untuk menampilkan metrik, grafik, dan tabel tetap sama persis
-    # karena ia bekerja pada DataFrame df_history yang sudah digabungkan.
-    # ... (kode st.subheader("Ringkasan Periode Total"), st.metric, st.line_chart, st.dataframe, st.download_button) ...
+    # --- Filter Tahun dan Bulan ---
+    col1, col2 = st.columns(2)
+    with col1:
+        available_years = sorted(available_periods.keys(), reverse=True)
+        selected_year = st.selectbox("Pilih Tahun:", available_years)
+
+    with col2:
+        if selected_year:
+            available_months = available_periods[selected_year]
+            month_names = {month_num: calendar.month_name[month_num] for month_num in available_months}
+            selected_month_num = st.selectbox(
+                "Pilih Bulan:", 
+                available_months,
+                format_func=lambda x: month_names[x]
+            )
+
+    # Memuat data berdasarkan filter
+    df_history = None
+    if selected_year and selected_month_num:
+        df_history = load_and_combine_history(DATA_FOLDER, selected_year, selected_month_num)
+
+    if df_history is None or df_history.empty:
+        st.info(f"Tidak ada data histori untuk periode {month_names.get(selected_month_num, '')} {selected_year}.")
+        return
+        
     df_display_and_download = df_history.copy()
     df_history.set_index('date', inplace=True)
     
     st.markdown("---")
     
-    st.subheader("Ringkasan Periode Total")
+    # --- Tampilkan Metrik, Grafik, Tabel, dan Tombol Unduh ---
+    st.subheader(f"Ringkasan Periode: {month_names.get(selected_month_num, '')} {selected_year}")
+    
     total_anomalies_ae = df_history['anomaly_count_ae'].sum()
     total_anomalies_ocsvm = df_history['anomaly_count_ocsvm'].sum()
     total_logs_in_period = df_history['total_logs'].sum()
     day_with_highest_anomalies = df_history['anomaly_count_ae'].idxmax() if not df_history.empty else None
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Anomali (AE)", f"{total_anomalies_ae:,}")
-    col2.metric("Total Anomali (OC-SVM)", f"{total_anomalies_ocsvm:,}")
-    col3.metric("Total Log Diproses", f"{total_logs_in_period:,}")
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    metric_col1.metric("Total Anomali (AE)", f"{total_anomalies_ae:,}")
+    metric_col2.metric("Total Anomali (OC-SVM)", f"{total_anomalies_ocsvm:,}")
+    metric_col3.metric("Total Log Diproses", f"{total_logs_in_period:,}")
     
     if pd.notna(day_with_highest_anomalies):
         st.info(f"Hari dengan anomali terbanyak (AE): **{day_with_highest_anomalies.strftime('%d %B %Y')}** "
@@ -118,9 +163,9 @@ def display_monthly_dashboard():
     
     excel_data = convert_df_to_excel(df_display_and_download)
     st.download_button(
-        label="📥 Unduh Histori Gabungan (Excel)",
+        label="📥 Unduh Histori Bulan Ini (Excel)",
         data=excel_data,
-        file_name="combined_detection_history.xlsx",
+        file_name=f"history_summary_{selected_year}-{selected_month_num:02d}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
